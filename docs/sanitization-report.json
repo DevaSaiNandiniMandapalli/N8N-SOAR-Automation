@@ -1,0 +1,107 @@
+{
+  "source_sha256": "5527ab52f6a29a3f37a920d247f9f33e967c940d3a7558576d6ee281c2f4be53",
+  "output_sha256": "4b59664f10a687501ac786fac21eabf02400af22ea0483d4f3016bba55120eb7",
+  "nodes": 31,
+  "edges": 36,
+  "original_secret_count": 13,
+  "surviving_original_secrets": 0,
+  "unredacted_pattern_findings": [],
+  "changes": [
+    {
+      "node": "Webhook",
+      "change": "removed webhookId"
+    },
+    {
+      "node": "Discord Alert",
+      "change": "replaced Discord webhook URL"
+    },
+    {
+      "node": "Discord Alert",
+      "change": "rewrote infrastructure URL in jsonBody"
+    },
+    {
+      "node": "Send a text message",
+      "change": "removed webhookId"
+    },
+    {
+      "node": "Send a text message",
+      "change": "removed credential id"
+    },
+    {
+      "node": "Send a text message",
+      "change": "replaced Telegram chat id"
+    },
+    {
+      "node": "virus total",
+      "change": "replaced headerParameters x-apikey"
+    },
+    {
+      "node": "AbuseIPDB",
+      "change": "replaced headerParameters key"
+    },
+    {
+      "node": "OTX",
+      "change": "replaced headerParameters X-OTX-API-KEY"
+    },
+    {
+      "node": "Grey Noise",
+      "change": "replaced headerParameters key"
+    },
+    {
+      "node": "Threat Fox",
+      "change": "replaced headerParameters auth-key"
+    },
+    {
+      "node": "FortiGate HTTP Request node",
+      "change": "replaced headerParameters Authorization"
+    },
+    {
+      "node": "FortiGate HTTP Request node",
+      "change": "replaced FortiGate host"
+    },
+    {
+      "node": "Slack",
+      "change": "removed webhookId"
+    },
+    {
+      "node": "Slack",
+      "change": "removed credential id"
+    },
+    {
+      "node": "Leakix",
+      "change": "replaced headerParameters api-Key"
+    },
+    {
+      "node": "DFIR-IRIS Alert",
+      "change": "replaced headerParameters Authorization"
+    },
+    {
+      "node": "DFIR-IRIS Alert",
+      "change": "rewrote infrastructure URL in url"
+    },
+    {
+      "node": "Laya Decision Gate",
+      "change": "rewrote infrastructure URL in jsCode"
+    },
+    {
+      "node": "workflow",
+      "change": "removed id"
+    },
+    {
+      "node": "workflow",
+      "change": "removed versionId"
+    },
+    {
+      "node": "workflow",
+      "change": "removed meta.instanceId"
+    },
+    {
+      "node": "workflow",
+      "change": "removed settings.errorWorkflow"
+    },
+    {
+      "node": "workflow",
+      "change": "set active=false"
+    }
+  ]
+}

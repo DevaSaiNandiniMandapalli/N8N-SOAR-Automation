@@ -1,0 +1,25 @@
+%% Deployment topology and trust zones
+flowchart LR
+    subgraph LAN["Private LAN / lab network"]
+        AG["Wazuh agents"]
+        WZ["Wazuh manager"]
+        N8N["n8n<br/>:5678"]
+        LAYA["Laya engine<br/>:9999"]
+        IRIS["DFIR-IRIS"]
+        FGT["FortiGate<br/>mgmt :11443"]
+        CON["Analyst browser<br/>Laya console"]
+    end
+
+    subgraph PUB["Public internet"]
+        TI["TI providers"]
+        CHAT["Discord / Telegram / Slack"]
+    end
+
+    AG --> WZ
+    WZ -->|"webhook (no auth)"| N8N
+    CON -->|"GET /"| LAYA
+    N8N -->|"plain HTTP"| LAYA
+    N8N -->|"TLS verify disabled"| IRIS
+    N8N -->|"TLS verify disabled"| FGT
+    N8N -->|"HTTPS + API keys"| TI
+    N8N -->|"HTTPS + tokens"| CHAT

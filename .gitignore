@@ -1,0 +1,37 @@
+# Environment and local data
+.env
+.env.*
+!.env.example
+*.local.json
+*.local.yaml
+
+# Private workflow material
+workflows/private/
+workflows/raw/
+*.raw.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Node
+node_modules/
+dist/
+build/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and temporary output
+*.log
+tmp/
+out/

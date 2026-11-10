@@ -1,0 +1,1117 @@
+{
+  "name": "Enterprise SOC SOAR Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wazuh-alerts",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -3456,
+        96
+      ],
+      "id": "4a522fa5-930a-4e1e-8feb-bbb400ea8b90",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "44b48d19-670d-456b-988e-da61fdbd999c",
+              "name": "rule_level",
+              "value": "={{ $json.body?.rule?.level ?? $json.rule?.level ?? null }}",
+              "type": "number"
+            },
+            {
+              "id": "a564e943-ead0-45ac-aade-a09914cde773",
+              "name": "agent_name",
+              "value": "={{ $json.body?.agent?.name ?? $json.agent?.name ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "d64c9603-e81b-4a41-8197-aeb9cc626285",
+              "name": "description",
+              "value": "={{ $json.body?.rule?.description ?? $json.rule?.description ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "6a87381f-06fb-4fad-8e86-1adb59731a68",
+              "name": "source_ip",
+              "value": "={{ $json.body?.data?.srcip ?? $json.data?.srcip ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "f7e1a2b3-c4d5-6789-abcd-ef0123456789",
+              "name": "rule_id",
+              "value": "={{ $json.body?.rule?.id ?? $json.rule?.id ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "g8h2b3c4-d5e6-7890-bcde-f01234567890",
+              "name": "agent_id",
+              "value": "={{ $json.body?.agent?.id ?? $json.agent?.id ?? null }}",
+              "type": "string"
+            },
+            {
+              "id": "d4281d65-36fe-4783-85e1-1b19c1ae891a",
+              "name": "groups",
+              "value": "={{ $json.body?.rule?.groups ?? $json.rule?.groups ?? [] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        -3232,
+        96
+      ],
+      "id": "163c0b9e-f7cd-48e7-9724-ac1001747745",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/REPLACE_WITH_DISCORD_WEBHOOK_ID/REPLACE_WITH_DISCORD_WEBHOOK_TOKEN",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n(() => {\n  const gate = $json.laya_gate ?? {};\n  const report = $('Final Report').first()?.json?.report ?? {};\n  const internal = report.internal_analysis ?? {};\n  const ti = report.threat_intelligence ?? {};\n\n  let irisId = null;\n  try { irisId = $('DFIR-IRIS Alert').first()?.json?.data?.alert_id ?? $('DFIR-IRIS Alert').first()?.json?.alert_id ?? null; } catch (e) { irisId = null; }\n  const irisLink = irisId ? `https://REPLACE_WITH_IRIS_HOST/alerts?alert_ids=${irisId}&cid=1` : 'https://REPLACE_WITH_IRIS_HOST/alerts';\n\n  const sev = String(report.severity ?? 'MEDIUM').toUpperCase();\n  const COLORS = { CRITICAL: 0xB91C1C, HIGH: 0xDC2626, MEDIUM: 0xB45309, LOW: 0x1D4ED8 };\n  const layerTxt = (gate.layer === null || gate.layer === undefined) ? 'n/a' : ('L' + gate.layer);\n\n  const sceneLines = report.scene_lines || [];\n  const fields = [\n    { name: 'Severity', value: sev, inline: true },\n    { name: 'Confidence', value: Math.round((Number(gate.confidence) || 0) * 100) + '%', inline: true },\n    { name: 'Decision layer', value: layerTxt + (gate.stage ? ' - ' + gate.stage : ''), inline: true },\n    { name: 'Host', value: '`' + (report.agent_name ?? 'n/a') + '`', inline: true },\n    { name: 'Rule', value: '`' + (report.rule_id ?? 'n/a') + '` (level ' + (report.rule_level ?? 'n/a') + ')', inline: true },\n    { name: 'Verdict', value: String(gate.verdict ?? 'n/a').replace(/_/g, ' '), inline: true },\n  ];\n\n  if (report.analysis_type === 'internal') {\n    fields.push({ name: 'Account', value: '`' + (report.srcuser ?? internal.user ?? 'n/a') + '`', inline: true });\n    if (internal.command) fields.push({ name: 'Command', value: '`' + internal.command + '`', inline: false });\n    if (internal.mitre && internal.mitre.ids && internal.mitre.ids.length) {\n      fields.push({ name: 'MITRE ATT&CK', value: internal.mitre.ids.join(', '), inline: false });\n    }\n  } else {\n    fields.push({ name: 'Source IP', value: '`' + (report.source_ip ?? 'n/a') + '`', inline: true });\n    if (ti.abuseipdb?.country) {\n      fields.push({ name: 'Country / Location', value: String(ti.abuseipdb.country), inline: true });\n    }\n    fields.push({\n      name: 'Threat intel',\n      value: 'AbuseIPDB ' + (ti.abuseipdb?.confidence_score ?? ti.abuseipdb?.score ?? 0) + '%'\n        + '  |  VirusTotal ' + (ti.virustotal?.malicious ?? 0) + ' engines'\n        + '  |  GreyNoise ' + (ti.greynoise?.classification ?? 'unknown'),\n      inline: false\n    });\n  }\n\n  if (sceneLines.length) fields.push({ name: 'Complete alert scene', value: ('```\\n' + sceneLines.join('\\n') + '\\n```').slice(0, 1020), inline: false });\n  if (gate.reason) fields.push({ name: 'Decision reason', value: String(gate.reason).slice(0, 500), inline: false });\n  fields.push({ name: 'Recommended action', value: String(report.recommendation ?? 'Review in DFIR-IRIS').slice(0, 500), inline: false });\n\n  const embed = {\n    username: 'Laya SOC',\n    embeds: [{\n      title: ('[' + sev + '] ' + String(report.description ?? 'Security Incident')).slice(0, 250),\n      url: irisLink,\n      description: String(report.summary ?? '').slice(0, 900),\n      color: COLORS[sev] ?? 0x334155,\n      fields: fields.slice(0, 25),\n      footer: {\n        text: 'Laya ' + (gate.correlation_id ?? 'n/a') + '  |  policy ' + (gate.policy_version ?? 'n/a')\n              + '  |  IRIS #' + (irisId ?? 'not created')\n      },\n      timestamp: new Date().toISOString()\n    }]\n  };\n  return JSON.stringify(embed);\n})()\n}}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        576,
+        80
+      ],
+      "id": "a323e043-d723-4c3c-856b-f85b0d326182",
+      "name": "Discord Alert",
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "chatId": "REPLACE_WITH_TELEGRAM_CHAT_ID",
+        "text": "={{\n(() => {\n  const report = $('Final Report').first().json.report ?? {};\n  const internal = report.internal_analysis ?? {};\n  const ai = report.summary ?? 'Tier-2 SOAR analysis completed';\n\n  const esc = (value) =>\n    String(value ?? 'N/A')\n      .replace(/&/g, '&amp;')\n      .replace(/</g, '&lt;')\n      .replace(/>/g, '&gt;');\n\n  const join = (value) =>\n    Array.isArray(value) && value.length\n      ? value.map(esc).join(', ')\n      : 'N/A';\n\n  const ti = report.threat_intelligence ?? {};\n  const abuse = ti.abuseipdb ?? {};\n  const vt = ti.virustotal ?? {};\n  const otx = ti.otx ?? {};\n  const grey = ti.greynoise ?? {};\n  const threatfox = ti.threatfox ?? {};\n  const leakix = ti.leakix ?? {};\n  const assessment = report.assessment ?? {};\n  const generated = report.generated_at ? esc(report.generated_at) : 'N/A';\n  const separator = '────────────────────';\n\n  if (report.analysis_type === 'internal') {\n    const gate = $json.laya_gate ?? {};\n    let irisId = null;\n    try { irisId = $('DFIR-IRIS Alert').first()?.json?.data?.alert_id ?? null; } catch (e) { irisId = null; }\n    const idLine = '\\nAlert ID: ' + (gate.correlation_id || 'n/a') + (irisId ? ('  |  IRIS case: #' + irisId) : '');\n    return `SOC INCIDENT REPORT' + idLine + '\n\nSeverity: ${esc(report.severity)}\nAgent: ${esc(report.agent_name)}\nRule Level: ${esc(report.rule_level)}\n\nDescription:\n${esc(report.description)}\n\n${separator}\nINTERNAL ANALYSIS\n${separator}\n\nRule ID:\n${esc(internal.rule_id)}\n\nUser:\n${esc(internal.user)}\n\nTarget User:\n${esc(internal.target_user)}\n\nCommand:\n${esc(internal.command)}\n\nMITRE ATT&CK:\n${join(internal.mitre?.ids)}\n\nTactics:\n${join(internal.mitre?.tactics)}\n\nTechniques:\n${join(internal.mitre?.techniques)}\n\n${separator}\nASSESSMENT\n${separator}\n\nRisk Score: ${esc(report.risk_score)}/100\nConfidence: ${esc(assessment.confidence)}\n\n${separator}\nSUMMARY\n${separator}\n\n${esc(report.summary)}\n\n${separator}\nRECOMMENDED ACTION\n${separator}\n\n${esc(report.recommendation)}\n\n${separator}\nGENERATED\n${separator}\n\n${generated}`;\n  }\n\n  return `SOC INCIDENT REPORT\n\nSeverity: ${esc(report.severity)}\nAgent: ${esc(report.agent_name)}\nRule Level: ${esc(report.rule_level)}\n\nDescription:\n${esc(report.description)}\n\nSource IP:\n${esc(report.source_ip)}\n\n${separator}\nTHREAT INTELLIGENCE\n${separator}\n\nAbuseIPDB:\nStatus: ${esc(abuse.status)}\nConfidence Score: ${esc(abuse.confidence_score ?? abuse.score)}/100\nReports: ${esc(abuse.reports)}\nCountry: ${esc(abuse.country)}\nISP: ${esc(abuse.isp)}\n\nVirusTotal:\nStatus: ${esc(vt.status)}\nMalicious: ${esc(vt.malicious)}\nReputation: ${esc(vt.reputation)}\n\nAlienVault OTX:\nStatus: ${esc(otx.status)}\nPulses: ${esc(otx.pulses)}\n\nGreyNoise:\nStatus: ${esc(grey.status)}\nClassification: ${esc(grey.classification)}\nNoise: ${esc(grey.noise)}\n\nThreatFox:\nStatus: ${esc(threatfox.status)}\n\n${separator}\nASSESSMENT\n${separator}\n\nRisk Score: ${esc(report.risk_score)}/100\nConfidence: ${esc(assessment.confidence)}\nProvider Coverage: ${esc(assessment.provider_coverage)}%\n\n${separator}\nSUMMARY\n${separator}\n\n${esc(report.summary)}\n\n${separator}\nRECOMMENDED ACTION\n${separator}\n\n${esc(report.recommendation)}\n\n${separator}\nGENERATED\n${separator}\n\n${generated}`;\n})()\n}}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        576,
+        -304
+      ],
+      "id": "31c62e23-4d90-46ab-a504-6144af57a2da",
+      "name": "Send a text message",
+      "credentials": {
+        "telegramApi": {
+          "name": "Telegram account"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.virustotal.com/api/v3/ip_addresses/{{$json.ioc.value}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "REPLACE_WITH_VIRUSTOTAL_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2112,
+        176
+      ],
+      "id": "79ff16e9-92fb-4b6e-b20c-9560f9cad0df",
+      "name": "virus total",
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.abuseipdb.com/api/v2/check",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ipAddress",
+              "value": "={{ $json.ioc?.public_ips?.[0] ?? $json.source_ip ?? null }}"
+            },
+            {
+              "name": "maxAgeInDays",
+              "value": "90"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/json"
+            },
+            {
+              "name": "key",
+              "value": "REPLACE_WITH_ABUSEIPDB_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2112,
+        -192
+      ],
+      "id": "9962cdab-bf19-4971-85ce-77b6672a6215",
+      "name": "AbuseIPDB",
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://otx.alienvault.com/api/v1/indicators/IPv4/{{$json.source_ip}}/general",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-OTX-API-KEY",
+              "value": "REPLACE_WITH_OTX_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2112,
+        -384
+      ],
+      "id": "34068eab-757f-4cbb-a732-96401105d711",
+      "name": "OTX",
+      "alwaysOutputData": true,
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "numberInputs": 6
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -1664,
+        -528
+      ],
+      "id": "7b74d4fa-98af-4b17-b22b-b20df5a24755",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "url": "=https://api.greynoise.io/v3/community/{{$json.source_ip}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "key",
+              "value": "REPLACE_WITH_GREYNOISE_API_KEY"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2112,
+        0
+      ],
+      "id": "36f13126-3b84-4811-b3f9-ab7b58f4c5b9",
+      "name": "Grey Noise",
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://threatfox-api.abuse.ch/api/v1/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "auth-key",
+              "value": "REPLACE_WITH_THREATFOX_AUTH_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"search_ioc\",\n  \"search_term\": \"{{$json.source_ip}}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2112,
+        -576
+      ],
+      "id": "c851eb7c-b94f-4445-8dfb-09f8d996b17d",
+      "name": "Threat Fox",
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconst incident = data.incident ?? {};\n\nconst severity = String(\n  data.severity ?? incident.severity ?? \"MEDIUM\"\n).toUpperCase();\n\nconst ruleLevel = Number(incident.rule_level ?? 0);\nconst ruleId = incident.rule_id ?? incident.internal_analysis?.rule_id ?? incident.original_alert?.rule?.id ?? incident.rule?.id ?? 'N/A';\nconst agentName = incident.agent_name ?? incident.original_alert?.agent?.name ?? 'blusoc';\nconst wazuhAlertId = incident.original_alert?.id ?? incident.alert_id ?? 'N/A';\nconst description = incident.description ?? incident.original_alert?.rule?.description ?? 'Security Incident';\nconst sourceIp = incident.source_ip ?? incident.original_alert?.data?.srcip ?? 'N/A';\nconst riskScore = Number(incident.risk_score ?? incident.assessment?.risk_score ?? 0);\nconst confidence = incident.assessment?.confidence ?? 'LOW';\nconst verdict = incident.assessment?.verdict ?? 'ALERT_INGESTED';\nconst analysisType = incident.analysis_type ?? 'external';\nconst ti = incident.threat_intelligence ?? {};\nconst evidenceList = incident.assessment?.evidence ?? [];\nconst rawLog = incident.original_alert?.full_log ?? incident.raw_log ?? incident.description ?? 'Log telemetry verified.';\n\n\n// ---------- complete alert scene (what an analyst actually needs) ----------\nfunction buildSceneLines(a) {\n  if (!a || typeof a !== 'object') return [];\n  const r = a.rule || {}, d = a.data || {}, ag = a.agent || {};\n  const al = (d.alert && typeof d.alert === 'object') ? d.alert : {};\n  const meta = (al.metadata && typeof al.metadata === 'object') ? al.metadata : {};\n  const http = (d.http && typeof d.http === 'object') ? d.http : {};\n  const win = (d.win && typeof d.win === 'object') ? d.win : {};\n  const ev = (win.eventdata && typeof win.eventdata === 'object') ? win.eventdata : {};\n  const one = (v) => Array.isArray(v) ? v.join(',') : (v == null ? '' : String(v));\n  const L = [];\n\n  L.push('Sensor / Agent   : ' + (ag.name || 'unknown') + (ag.ip ? ('  (' + ag.ip + ')') : ''));\n  L.push('Rule             : ' + (r.id || '?') + '  level ' + (r.level == null ? '?' : r.level));\n  L.push('Description      : ' + (r.description || 'n/a'));\n  if (r.groups) L.push('Rule groups      : ' + one(r.groups));\n\n  const sip = d.src_ip || d.srcip || (al.source && al.source.ip);\n  const dip = d.dest_ip || d.dstip || (al.target && al.target.ip);\n  const sport = d.src_port || d.srcport || (al.source && al.source.port);\n  const dport = d.dest_port || d.dstport || (al.target && al.target.port);\n  if (sip || dip) {\n    L.push('Network          : ' + (sip || '?') + (sport ? (':' + sport) : '') +\n           '  ->  ' + (dip || '?') + (dport ? (':' + dport) : '') +\n           (d.proto ? ('   proto=' + d.proto) : '') +\n           (d.app_proto ? ('   app=' + d.app_proto) : '') +\n           (d.direction ? ('   dir=' + d.direction) : ''));\n  }\n  if (al.signature) {\n    L.push('Signature        : [' + (al.category || 'uncategorised') + '] ' + al.signature);\n    L.push('Signature detail : id=' + (al.signature_id || '?') + '  severity=' + (al.severity || '?') +\n           '  action=' + (al.action || '?') +\n           (al.rev ? ('  rev=' + al.rev) : ''));\n  }\n  const tm = [];\n  if (meta.cve) tm.push('CVE=' + one(meta.cve));\n  if (meta.tag) tm.push('tags=' + one(meta.tag));\n  if (meta.confidence) tm.push('confidence=' + one(meta.confidence));\n  if (meta.signature_severity) tm.push('signature_severity=' + one(meta.signature_severity));\n  if (meta.affected_product) tm.push('affected_product=' + one(meta.affected_product));\n  if (meta.attack_target) tm.push('attack_target=' + one(meta.attack_target));\n  if (meta.mitre_technique_id) tm.push('technique=' + one(meta.mitre_technique_id) +\n                                       (meta.mitre_technique_name ? (' ' + one(meta.mitre_technique_name)) : ''));\n  if (meta.mitre_tactic_name) tm.push('tactic=' + one(meta.mitre_tactic_name));\n  if (tm.length) L.push('Threat metadata  : ' + tm.join('  |  '));\n\n  if (http.http_method) {\n    L.push('HTTP request     : ' + http.http_method + ' ' + (http.hostname || '') + (http.url || '') +\n           (http.protocol ? ('  ' + http.protocol) : ''));\n    if (http.http_user_agent) L.push('HTTP user-agent  : ' + String(http.http_user_agent).slice(0, 160));\n  }\n  if (d.flow) {\n    L.push('Flow             : in ' + (d.flow.pkts_toserver || 0) + ' pkts/' + (d.flow.bytes_toserver || 0) +\n           ' B   out ' + (d.flow.pkts_toclient || 0) + ' pkts/' + (d.flow.bytes_toclient || 0) + ' B');\n  }\n\n  const acct = d.srcuser || d.dstuser || d.user || ev.user || (d.office365 && d.office365.UserId);\n  if (acct) L.push('Account          : ' + acct);\n  const cmd = d.command || (d.audit && d.audit.command);\n  if (cmd) L.push('Command          : ' + cmd);\n  const img = ev.image || ev.Image || d.process;\n  if (img) L.push('Process          : ' + img);\n  const pimg = ev.parentImage || ev.ParentImage;\n  if (pimg) L.push('Parent process   : ' + pimg);\n  const cli = ev.commandLine || ev.CommandLine;\n  if (cli) L.push('Process command  : ' + cli);\n  const fh = d.md5 || d.sha1 || d.sha256 || d.hash || (d.syscheck && (d.syscheck.md5_after || d.syscheck.sha256_after));\n  if (fh) L.push('File hash        : ' + fh);\n  const fp = d.file || d.path || (d.syscheck && d.syscheck.path);\n  if (fp) L.push('File / path      : ' + fp);\n  const op = d.office365 && d.office365.Operation;\n  if (op) L.push('Cloud operation  : ' + op);\n  const vuln = (d.vulnerability && typeof d.vulnerability === 'object') ? d.vulnerability : null;\n  if (vuln) L.push('Vulnerability    : ' + (vuln.cve || '') + '  severity=' + (vuln.severity || '') + '  status=' + (vuln.status || ''));\n  if (r.mitre) L.push('MITRE ATT&CK     : ' + one(r.mitre.id) + '  ' + one(r.mitre.tactic) + '  ' + one(r.mitre.technique));\n  if (a.location) L.push('Log location     : ' + a.location);\n  if (a.full_log) L.push('Raw event        : ' + String(a.full_log).slice(0, 1400));\n  return L;\n}\n\nconst sceneAlert = incident.original_alert ?? null;\nconst sceneLines = buildSceneLines(sceneAlert);\n\nlet summaryText = \"\";\nlet recommendationText = \"\";\nlet descriptionText = \"\";\n\nif (analysisType === 'internal') {\n  const internal = incident.internal_analysis ?? {};\n  const userStr = internal.user || 'system';\n  const targetStr = internal.target_user || 'root';\n  const cmdStr = internal.command || 'N/A';\n  const mitreStr = (internal.mitre?.ids?.length > 0)\n    ? `${internal.mitre.ids.join(', ')} (${internal.mitre.tactics?.join(', ') || ''} - ${internal.mitre.techniques?.join(', ') || ''})`\n    : 'N/A';\n\n  summaryText = `Internal host security event detected on ${agentName}. User: ${userStr}, Command: ${cmdStr}. Action triggered rule level ${ruleLevel}.`;\n  recommendationText = \"Verify user authorization for executed commands, inspect audit logs, and ensure least-privilege access.\";\n\n  descriptionText = `[ENTERPRISE SOAR INCIDENT ASSESSMENT]\nSeverity       : ${severity} (Risk Score: ${riskScore}/100)\nTarget Agent   : ${agentName}\nRule ID        : ${ruleId} (Level ${ruleLevel})\nClassification : INTERNAL (Confidence: ${confidence})\nPre-assessment : ${verdict} (heuristic - the authoritative verdict is the Laya decision below)\n\n[INTERNAL THREAT DETAILS]\nUser           : ${userStr}\nTarget User    : ${targetStr}\nCommand        : ${cmdStr}\nMITRE ATT&CK   : ${mitreStr}\n\n[SOC TIER-2 ANALYST SUMMARY]\n${summaryText}\n\n[CORROBORATING EVIDENCE & ARTIFACTS]\n${evidenceList.length > 0 ? evidenceList.map(e => '- ' + e).join('\\n') : '- Internal host security event verified.'}\n\n[RECOMMENDED SOC ACTIONS]\n${recommendationText}\n\n[COMPLETE ALERT SCENE]\n${sceneLines.length ? sceneLines.join('\\n') : '(no structured detail)'}\n\n[LOG EXCERPT]\n${rawLog}`;\n\n} else {\n  if (verdict === 'TRUE_POSITIVE_THREAT') {\n    summaryText = `High-confidence malicious activity detected from ${sourceIp} targeting ${agentName}. Threat intel corroboration confirmed across ${incident.assessment?.malicious_sources?.join(', ') || 'multiple feeds'} with Risk Score ${riskScore}/100.`;\n    recommendationText = \"Block external source IP at perimeter firewall, isolate affected hosts, and inspect established network sessions.\";\n  } else {\n    summaryText = `SOC training/reconnaissance alert from ${sourceIp} against ${agentName} (Rule ${ruleId} - ${description}). No external threat feeds flagged malicious reputation.`;\n    recommendationText = \"Review event in DFIR-IRIS, triage source IP in OSINT tools, and verify if associated with training scenario.\";\n  }\n\n  const abuseScore = ti.abuseipdb?.confidence_score ?? ti.abuseipdb?.confidence ?? ti.abuseipdb?.score ?? 'N/A';\n  const vtMalicious = ti.virustotal?.malicious ?? '0';\n  const vtRep = ti.virustotal?.reputation ?? '0';\n  const greyClass = ti.greynoise?.classification ?? (ti.greynoise?.noise ? 'Benign Scanner' : 'Unknown');\n  const otxPulses = ti.otx?.pulses ?? '0';\n  const tfStatus = ti.threatfox?.status ?? 'No Hit';\n\n  descriptionText = `[ENTERPRISE SOAR INCIDENT ASSESSMENT]\nSeverity       : ${severity} (Risk Score: ${riskScore}/100)\nTarget Agent   : ${agentName}\nRule ID        : ${ruleId} (Level ${ruleLevel})\nClassification : EXTERNAL (Confidence: ${confidence})\nVerdict        : ${verdict}\n\n[THREAT INTELLIGENCE SCORECARD]\nSource IP      : ${sourceIp}\nAbuseIPDB      : ${abuseScore}% confidence (Country: ${ti.abuseipdb?.country || 'N/A'}, ISP: ${ti.abuseipdb?.isp || 'N/A'})\nVirusTotal     : ${vtMalicious} malicious engines (Reputation: ${vtRep})\nGreyNoise      : ${greyClass} (Background Noise: ${ti.greynoise?.noise ? 'Yes' : 'No'})\nAlienVault OTX : ${otxPulses} pulses\nThreatFox      : ${tfStatus}\n\n[SOC TIER-2 ANALYST SUMMARY]\n${summaryText}\n\n[CORROBORATING EVIDENCE & ARTIFACTS]\n${evidenceList.length > 0 ? evidenceList.map(e => '- ' + e).join('\\n') : '- Threat intelligence enrichment recorded.'}\n\n[RECOMMENDED SOC ACTIONS]\n${recommendationText}\n\n[COMPLETE ALERT SCENE]\n${sceneLines.length ? sceneLines.join('\\n') : '(no structured detail)'}\n\n[LOG EXCERPT]\n${rawLog}`;\n}\n\nconst report = {\n  agent_name: agentName,\n  scene_lines: sceneLines,\n  raw_alert: sceneAlert,\n  srcuser: incident.original_alert?.data?.srcuser\n        ?? incident.original_alert?.data?.user\n        ?? incident.internal_analysis?.user\n        ?? null,\n  wazuh_alert_id: wazuhAlertId,\n  rule_id: ruleId,\n  rule_level: ruleLevel,\n  description: description,\n  source_ip: sourceIp,\n  ioc: incident.ioc ?? { type: analysisType === 'internal' ? 'internal' : 'public_ip', value: sourceIp },\n  severity: severity,\n  risk_score: riskScore,\n  analysis_type: analysisType,\n  threat_intelligence: ti,\n  internal_analysis: incident.internal_analysis ?? null,\n  assessment: {\n    ...incident.assessment,\n    confidence: confidence,\n    verdict: verdict,\n    summary: summaryText,\n    recommendation: recommendationText\n  },\n  summary: summaryText,\n  recommendation: recommendationText\n};\n\nconst iris_payload = {\n  alert_title: `[SOAR ${severity}] ${description} on ${agentName}`,\n  alert_description: descriptionText,\n  alert_source: \"Wazuh-SOAR\",\n  alert_source_ref: `soar-${ruleId}-${agentName}-${sourceIp || (d.srcuser || 'local')}`,\n  alert_severity_id: (severity === 'CRITICAL') ? 6 : (severity === 'HIGH') ? 5 : (severity === 'MEDIUM') ? 1 : 4,\n  alert_status_id: 1,\n  alert_customer_id: 1,\n  alert_tags: `wazuh,soar_enriched,rule_${ruleId},${analysisType},${severity.toLowerCase()}`\n};\n\nreturn [{\n  json: {\n    report,\n    severity,\n    iris_description: descriptionText,\n    iris_payload: iris_payload\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        128,
+        0
+      ],
+      "id": "3c623259-647e-43a8-9c20-2db208dad560",
+      "name": "Final Report",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json;\n\nconst incident = input.incident ?? {};\nconst assessment = incident.assessment ?? {};\n\nconst ruleLevel = Number(incident.rule_level ?? 0);\nconst riskScore = Number(incident.risk_score ?? assessment.risk_score ?? 0);\n\nconst ti = incident.threat_intelligence ?? {};\n\nconst abuse = ti.abuseipdb ?? {};\nconst vt = ti.virustotal ?? {};\nconst grey = ti.greynoise ?? {};\nconst tf = ti.threatfox ?? {};\nconst otx = ti.otx ?? {};\nconst leakix = ti.leakix ?? {};\n\nconst abuseScore = Number(abuse.score ?? 0);\nconst vtMalicious = Number(vt.malicious ?? 0);\nconst vtSuspicious = Number(vt.suspicious ?? 0);\nconst otxPulses = Number(otx.pulses ?? 0);\n\nconst greyMalicious =\n  grey.classification === \"malicious\";\n\nconst greyNoise =\n  grey.noise === true;\n\nconst threatFoxHit =\n  tf.status === \"success\";\n\nconst leakixUnavailable =\n  leakix.status === \"unavailable\";\n\n\n// ============================================================\n// CORROBORATION\n// ============================================================\n\nconst maliciousSignals = [];\n\nif (greyMalicious) {\n  maliciousSignals.push(\"GreyNoise\");\n}\n\nif (abuseScore >= 80) {\n  maliciousSignals.push(\"AbuseIPDB\");\n}\n\nif (vtMalicious > 0) {\n  maliciousSignals.push(\"VirusTotal\");\n}\n\nif (otxPulses > 0) {\n  maliciousSignals.push(\"OTX\");\n}\n\nif (threatFoxHit) {\n  maliciousSignals.push(\"ThreatFox\");\n}\n\nconst corroboratingSources =\n  maliciousSignals.length;\n\n\n// ============================================================\n// FINAL SEVERITY\n// ============================================================\n//\n// Start from Wazuh severity and use TI evidence to escalate.\n// TI provider failure never escalates severity.\n//\n\nlet severity = \"LOW\";\n\nif (ruleLevel >= 15) {\n  severity = \"CRITICAL\";\n} else if (ruleLevel >= 12) {\n  severity = \"HIGH\";\n} else if (ruleLevel >= 8) {\n  severity = \"MEDIUM\";\n}\n\n\n// Strong correlated evidence\nif (\n  riskScore >= 80 &&\n  corroboratingSources >= 3\n) {\n  severity = \"CRITICAL\";\n}\n\n\n// Confirmed ThreatFox IOC\nif (threatFoxHit) {\n  severity = \"CRITICAL\";\n}\n\n\n// Strong malware consensus\nif (\n  vtMalicious >= 10 &&\n  corroboratingSources >= 2\n) {\n  severity = \"CRITICAL\";\n}\n\n\n// Significant TI evidence\nif (\n  severity !== \"CRITICAL\" &&\n  riskScore >= 50 &&\n  corroboratingSources >= 2\n) {\n  severity = \"HIGH\";\n}\n\n\n// Single strong signal\nif (\n  severity === \"LOW\" &&\n  (\n    abuseScore >= 80 ||\n    vtMalicious >= 1 ||\n    greyMalicious ||\n    otxPulses > 0\n  )\n) {\n  severity = \"HIGH\";\n}\n\n\n// ============================================================\n// TRUSTED INFRASTRUCTURE\n// ============================================================\n//\n// Trusted ISP alone must NEVER override malicious evidence.\n//\n\nconst trustedISP = [\n  \"Google LLC\",\n  \"Cloudflare\",\n  \"Microsoft\",\n  \"Amazon\",\n  \"Akamai\"\n];\n\nconst isp =\n  String(abuse.isp ?? \"\");\n\nconst trusted =\n  trustedISP.some(name =>\n    isp.toLowerCase().includes(\n      name.toLowerCase()\n    )\n  );\n\nconst noMaliciousEvidence =\n  corroboratingSources === 0 &&\n  abuseScore === 0 &&\n  vtMalicious === 0 &&\n  !greyMalicious &&\n  !threatFoxHit &&\n  otxPulses === 0;\n\nif (\n  trusted &&\n  noMaliciousEvidence\n) {\n  if (ruleLevel >= 15) {\n    severity = \"HIGH\";\n  } else if (ruleLevel >= 8) {\n    severity = \"MEDIUM\";\n  } else {\n    severity = \"LOW\";\n  }\n}\n\n\n// ============================================================\n// RETURN\n// ============================================================\n\nreturn {\n  json: {\n    ...input,\n\n    severity,\n\n    severity_factors: {\n      rule_level: ruleLevel,\n      risk_score: riskScore,\n\n      abuseipdb_score: abuseScore,\n      virustotal_malicious: vtMalicious,\n      virustotal_suspicious: vtSuspicious,\n\n      greynoise_classification:\n        grey.classification ?? null,\n\n      greynoise_noise: greyNoise,\n\n      threatfox_hit: threatFoxHit,\n\n      otx_pulses: otxPulses,\n\n      corroborating_sources:\n        corroboratingSources,\n\n      malicious_sources:\n        maliciousSignals,\n\n      trusted_isp: trusted,\n\n      leakix_unavailable:\n        leakixUnavailable\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -320,
+        16
+      ],
+      "id": "9651d058-9b76-4f7c-a06f-6a1c3fbc1077",
+      "name": "Severity",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// INCIDENT SUMMARY\n// ============================================================\n// Input:\n//   { incident: { ... } }\n//\n// Both External Incident and Internal Incident already produce\n// the SAME schema:\n//   { incident: {...} }\n//\n// This node must therefore ALWAYS read from data.incident.\n// It must NOT expect alert/threat_intelligence/assessment at\n// the top level.\n//\n// Output:\n//   { incident: {...} }\n// ============================================================\n\nconst data = $input.first().json ?? {};\nconst incidentInput = data.incident ?? {};\n\nif (!incidentInput || typeof incidentInput !== 'object') {\n  return [];\n}\n\n// ------------------------------------------------------------\n// Helper functions\n// ------------------------------------------------------------\n\nconst safeString = (value, fallback = null) => {\n  if (value === null || value === undefined) {\n    return fallback;\n  }\n\n  const text = String(value).trim();\n  return text ? text : fallback;\n};\n\nconst safeArray = (value) => {\n  return Array.isArray(value) ? value : [];\n};\n\nconst safeNumber = (value, fallback = 0) => {\n  const n = Number(value);\n  return Number.isFinite(n) ? n : fallback;\n};\n\n// ------------------------------------------------------------\n// Basic alert context\n// ------------------------------------------------------------\n\nconst sourceIp =\n  safeString(incidentInput.source_ip);\n\nconst agentName =\n  safeString(incidentInput.agent_name);\n\nconst ruleLevel =\n  safeNumber(incidentInput.rule_level, 0);\n\nconst description =\n  safeString(\n    incidentInput.description,\n    'Unknown security event'\n  );\n\nconst analysisType =\n  incidentInput.analysis_type === 'internal'\n    ? 'internal'\n    : 'external';\n\n// ------------------------------------------------------------\n// IOC\n// ------------------------------------------------------------\n\nconst inputIoc =\n  incidentInput.ioc ??\n  {\n    type: null,\n    value: null\n  };\n\nconst ioc = {\n  type:\n    safeString(inputIoc.type),\n\n  value:\n    safeString(\n      inputIoc.value\n    )\n};\n\n// ------------------------------------------------------------\n// Threat Intelligence\n// ------------------------------------------------------------\n\nconst inputTi =\n  incidentInput.threat_intelligence ??\n  {};\n\nconst abuseInput =\n  inputTi.abuseipdb ??\n  {};\n\nconst vtInput =\n  inputTi.virustotal ??\n  {};\n\nconst greyInput =\n  inputTi.greynoise ??\n  {};\n\nconst threatFoxInput =\n  inputTi.threatfox ??\n  {};\n\nconst otxInput =\n  inputTi.otx ??\n  {};\n\nconst leakixInput =\n  inputTi.leakix ??\n  {};\n\n// Preserve the existing TI values.\n// Do NOT convert a valid provider result into null.\n//\n// Note: the existing AbuseIPDB normalizer may use \"score\"\n// internally while Telegram expects \"confidence_score\".\n// Preserve both where possible for compatibility.\n\nconst threatIntelligence = {\n\n  abuseipdb: {\n    status:\n      safeString(\n        abuseInput.status,\n        'not_checked'\n      ),\n\n    confidence_score:\n      abuseInput.confidence_score ??\n      abuseInput.score ??\n      null,\n\n    score:\n      abuseInput.score ??\n      abuseInput.confidence_score ??\n      null,\n\n    reports:\n      abuseInput.reports ??\n      abuseInput.total_reports ??\n      null,\n\n    country:\n      abuseInput.country ??\n      null,\n\n    isp:\n      abuseInput.isp ??\n      null,\n\n    domain:\n      abuseInput.domain ??\n      null,\n\n    tor:\n      abuseInput.tor ??\n      null\n  },\n\n  virustotal: {\n    status:\n      safeString(\n        vtInput.status,\n        'not_checked'\n      ),\n\n    malicious:\n      vtInput.malicious ??\n      null,\n\n    suspicious:\n      vtInput.suspicious ??\n      null,\n\n    harmless:\n      vtInput.harmless ??\n      null,\n\n    undetected:\n      vtInput.undetected ??\n      null,\n\n    reputation:\n      vtInput.reputation ??\n      null\n  },\n\n  greynoise: {\n    status:\n      safeString(\n        greyInput.status,\n        'not_checked'\n      ),\n\n    classification:\n      greyInput.classification ??\n      null,\n\n    noise:\n      greyInput.noise ??\n      null,\n\n    riot:\n      greyInput.riot ??\n      null\n  },\n\n  threatfox: {\n    status:\n      safeString(\n        threatFoxInput.status,\n        'not_checked'\n      ),\n\n    result:\n      threatFoxInput.result ??\n      null\n  },\n\n  otx: {\n    status:\n      safeString(\n        otxInput.status,\n        'not_checked'\n      ),\n\n    pulses:\n      otxInput.pulses ??\n      null,\n\n    reputation:\n      otxInput.reputation ??\n      null\n  },\n\n  leakix: {\n    status:\n      safeString(\n        leakixInput.status,\n        'not_checked'\n      ),\n\n    services:\n      safeArray(\n        leakixInput.services\n      ),\n\n    error:\n      leakixInput.error ??\n      null\n  }\n};\n\n// ------------------------------------------------------------\n// Internal Analysis\n// ------------------------------------------------------------\n\nconst inputInternal =\n  incidentInput.internal_analysis;\n\nlet internalAnalysis = null;\n\nif (\n  inputInternal &&\n  typeof inputInternal === 'object'\n) {\n\n  const mitreInput =\n    inputInternal.mitre ??\n    {};\n\n  internalAnalysis = {\n\n    rule_id:\n      inputInternal.rule_id ??\n      null,\n\n    user:\n      inputInternal.user ??\n      null,\n\n    target_user:\n      inputInternal.target_user ??\n      null,\n\n    command:\n      inputInternal.command ??\n      null,\n\n    mitre: {\n\n      ids:\n        safeArray(\n          mitreInput.ids\n        ),\n\n      tactics:\n        safeArray(\n          mitreInput.tactics\n        ),\n\n      techniques:\n        safeArray(\n          mitreInput.techniques\n        )\n    }\n  };\n}\n\n// ------------------------------------------------------------\n// Assessment\n// ------------------------------------------------------------\n\nconst inputAssessment =\n  incidentInput.assessment ??\n  {};\n\nconst maliciousSources =\n  safeArray(\n    inputAssessment.malicious_sources\n  );\n\nconst evidence =\n  safeArray(\n    inputAssessment.evidence\n  );\n\nconst providerFailures =\n  safeArray(\n    inputAssessment.provider_failures\n  );\n\nconst assessment = {\n\n  confidence:\n    safeString(\n      inputAssessment.confidence,\n      analysisType === 'internal'\n        ? 'HIGH'\n        : 'LOW'\n    ),\n\n  provider_coverage:\n    safeNumber(\n      inputAssessment.provider_coverage,\n      0\n    ),\n\n  has_malicious_evidence:\n    Boolean(\n      inputAssessment.has_malicious_evidence\n    ),\n\n  malicious_sources:\n    maliciousSources,\n\n  evidence:\n    evidence,\n\n  provider_failures:\n    providerFailures\n};\n\n// ------------------------------------------------------------\n// Severity\n// ------------------------------------------------------------\n\nlet severity =\n  safeString(\n    incidentInput.severity\n  );\n\nlet riskScore =\n  safeNumber(\n    incidentInput.risk_score,\n    0\n  );\n\n// If a valid severity already exists, preserve it.\n// Otherwise derive it from the Wazuh rule level.\n\nif (!severity) {\n\n  if (ruleLevel >= 15) {\n\n    severity = 'CRITICAL';\n    riskScore = Math.max(\n      riskScore,\n      90\n    );\n\n  } else if (ruleLevel >= 12) {\n\n    severity = 'HIGH';\n    riskScore = Math.max(\n      riskScore,\n      70\n    );\n\n  } else if (ruleLevel >= 8) {\n\n    severity = 'MEDIUM';\n    riskScore = Math.max(\n      riskScore,\n      40\n    );\n\n  } else {\n\n    severity = 'LOW';\n    riskScore = Math.max(\n      riskScore,\n      10\n    );\n  }\n}\n\n// ------------------------------------------------------------\n// Summary\n// ------------------------------------------------------------\n\nlet summary =\n  safeString(\n    incidentInput.summary\n  );\n\nif (!summary) {\n\n  if (analysisType === 'external') {\n\n    const iocValue =\n      ioc.value ??\n      sourceIp ??\n      'unknown';\n\n    summary =\n      `Multiple threat-intelligence sources were checked for ` +\n      `IOC ${iocValue}. ` +\n      `The resulting evidence was incorporated into the incident assessment.`;\n\n  } else {\n\n    const user =\n      safeString(\n        internalAnalysis?.user,\n        'unknown'\n      );\n\n    const targetUser =\n      safeString(\n        internalAnalysis?.target_user,\n        'unknown'\n      );\n\n    summary =\n      `Internal security event detected: ${description}. ` +\n      `User ${user} targeted ${targetUser}.`;\n  }\n}\n\n// ------------------------------------------------------------\n// Recommendation\n// ------------------------------------------------------------\n\nlet recommendation =\n  safeString(\n    incidentInput.recommendation\n  );\n\nif (!recommendation) {\n\n  const descriptionLower =\n    description.toLowerCase();\n\n  if (analysisType === 'external') {\n\n    if (\n      severity === 'CRITICAL'\n    ) {\n\n      recommendation =\n        `Investigate the incident immediately, validate the ` +\n        `activity, review the affected asset and surrounding ` +\n        `events, and consider blocking or containing the IOC ` +\n        `if malicious activity is confirmed.`;\n\n    } else if (\n      severity === 'HIGH'\n    ) {\n\n      recommendation =\n        `Investigate the incident promptly, validate the IOC ` +\n        `and related activity, review surrounding events, and ` +\n        `consider blocking the IOC if malicious behavior is confirmed.`;\n\n    } else {\n\n      recommendation =\n        `Review the alert and continue monitoring for additional ` +\n        `suspicious activity.`;\n    }\n\n  } else {\n\n    // Internal alerts should get recommendations based on the\n    // actual event instead of assuming every event is privilege\n    // escalation.\n\n    if (\n      /malware|trojan|ransom|backdoor|malicious file|falcon/.test(\n        descriptionLower\n      )\n    ) {\n\n      recommendation =\n        `Investigate the affected endpoint, inspect the detected ` +\n        `file or process, review process execution and file ` +\n        `provenance, and quarantine or isolate the host if ` +\n        `malicious activity is confirmed.`;\n\n    } else if (\n      /privilege|escalat|administrator|root/.test(\n        descriptionLower\n      )\n    ) {\n\n      recommendation =\n        `Investigate the privilege-related activity, verify ` +\n        `whether the administrative action was authorized, and ` +\n        `review related authentication and process activity.`;\n\n    } else if (\n      /brute|credential|authentication|login|unauthorized/.test(\n        descriptionLower\n      )\n    ) {\n\n      recommendation =\n        `Review the authentication activity, verify whether the ` +\n        `source and account activity were authorized, and inspect ` +\n        `related login failures or successful access.`;\n\n    } else if (\n      severity === 'CRITICAL'\n    ) {\n\n      recommendation =\n        `Investigate the incident immediately, review the affected ` +\n        `host and surrounding events, and contain the activity ` +\n        `if unauthorized behavior is confirmed.`;\n\n    } else {\n\n      recommendation =\n        `Review the event, validate whether the activity was ` +\n        `authorized, and inspect related endpoint or authentication ` +\n        `activity.`;\n    }\n  }\n}\n\n// ------------------------------------------------------------\n// Final normalized incident\n// ------------------------------------------------------------\n\nconst incident = {\n  original_alert: incidentInput.original_alert ?? null,\n  rule_id: incidentInput.rule_id ?? incidentInput.internal_analysis?.rule_id ?? incidentInput.original_alert?.rule?.id ?? null,\n  raw_log: incidentInput.raw_log ?? incidentInput.original_alert?.full_log ?? null,\n\n  source_ip:\n    sourceIp,\n\n  agent_name:\n    agentName,\n\n  rule_level:\n    incidentInput.rule_level ?? null,\n\n  description:\n    description,\n\n  severity:\n    severity,\n\n  risk_score:\n    riskScore,\n\n  ioc:\n    ioc,\n\n  analysis_type:\n    analysisType,\n\n  internal_analysis: internalAnalysis,\n  rule_id: incidentInput.rule_id,\n  original_alert: incidentInput.original_alert,\n  raw_log: incidentInput.raw_log,\n\n  threat_intelligence:\n    threatIntelligence,\n\n  assessment:\n    assessment,\n\n  summary:\n    summary,\n\n  recommendation:\n    recommendation,\n\n  // Preserve generated timestamp if an earlier node supplied it.\n  generated_at:\n    incidentInput.generated_at ??\n    new Date().toISOString()\n};\n\n// ------------------------------------------------------------\n// Return exactly ONE common schema\n// ------------------------------------------------------------\n\nreturn [\n  {\n    json: {\n      incident\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        16
+      ],
+      "id": "e4c99870-721f-4cd9-bdb0-17eaaa913cad",
+      "name": "Incident Summary",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "url": "https://REPLACE_WITH_FORTIGATE_HOST:11443/api/v2/cmdb/firewall/address?vdom=root",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer REPLACE_WITH_FORTIGATE_API_TOKEN"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"SOC_{{$json.report.source_ip}}\",\n  \"subnet\": \"{{$json.report.source_ip}} 255.255.255.255\",\n  \"comment\": \"Generated by SOC Automation | Severity: {{$json.report.severity}}\"\n}",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        576,
+        272
+      ],
+      "id": "64ecc664-fee3-469a-8f37-6c7a0c177573",
+      "name": "FortiGate HTTP Request node",
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "value": "#security-reports",
+          "mode": "name"
+        },
+        "text": "={{\n(() => {\n  const report = $('Final Report').first().json.report ?? {};\n  const internal = report.internal_analysis ?? {};\n\n  const truncate = (text, max = 3500) =>\n    String(text ?? 'N/A').length > max\n      ? String(text ?? 'N/A').substring(0, max) + '\\n\\n[Analysis truncated]'\n      : String(text ?? 'N/A');\n\n  const gate = $json.laya_gate ?? {};\n  let irisId = null;\n  try { irisId = $('DFIR-IRIS Alert').first()?.json?.data?.alert_id ?? null; } catch (e) { irisId = null; }\n  const idLine = '\\n*Alert ID:* ' + (gate.correlation_id || 'n/a') + (irisId ? ('  |  *IRIS case:* #' + irisId) : '');\n  let message = `*SOC INCIDENT REPORT*\n\n*Severity:* ${report.severity ?? 'N/A'}\n*Agent:* ${report.agent_name ?? 'N/A'}\n*Rule Level:* ${report.rule_level ?? 'N/A'}\n*Description:* ${report.description ?? 'N/A'}\n`;\n\n  if (report.analysis_type === 'internal') {\n    message += `\n*INTERNAL ANALYSIS*\n*Rule ID:* ${internal.rule_id ?? 'N/A'}\n*User:* ${internal.user ?? 'N/A'}\n*Target User:* ${internal.target_user ?? 'N/A'}\n*Command:* ${internal.command ?? 'N/A'}\n*MITRE:* ${internal.mitre?.ids?.join(', ') || 'N/A'}\n`;\n  } else {\n    message += `\n*SOURCE IP:* ${report.source_ip ?? 'N/A'}\n\n*THREAT INTELLIGENCE*\n*AbuseIPDB:* ${report.threat_intelligence?.abuseipdb?.confidence_score ?? report.threat_intelligence?.abuseipdb?.score ?? 'N/A'}/100\n*VirusTotal:* ${report.threat_intelligence?.virustotal?.malicious ?? 'N/A'} malicious\n*GreyNoise:* ${report.threat_intelligence?.greynoise?.classification ?? 'N/A'}\n*OTX Pulses:* ${report.threat_intelligence?.otx?.pulses ?? 'N/A'}\n`;\n  }\n\n  message += `\n*ASSESSMENT*\n*Risk Score:* ${report.risk_score ?? 'N/A'}/100\n*Confidence:* ${report.assessment?.confidence ?? 'N/A'}\n\n*SUMMARY*\n${report.summary ?? 'N/A'}\n\n*RECOMMENDED ACTION*\n${report.recommendation ?? 'N/A'}\n`;\n\n  return message;\n})()\n}}",
+        "otherOptions": {}
+      },
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.5,
+      "position": [
+        576,
+        -112
+      ],
+      "id": "6799dd20-eb82-4924-b6bd-5f867e2c275b",
+      "name": "Slack",
+      "credentials": {
+        "slackApi": {
+          "name": "Slack account"
+        }
+      },
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "=https://leakix.net/host/{{$json.source_ip}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "accept",
+              "value": "application/json"
+            },
+            {
+              "name": "api-Key",
+              "value": "REPLACE_WITH_LEAKIX_API_KEY"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -2112,
+        368
+      ],
+      "id": "20da107b-3b9c-4a4c-9e14-facebcd5a58b",
+      "name": "Leakix",
+      "retryOnFail": true,
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\n// ============================================================\n// ORIGINAL WAZUH ALERT\n// ============================================================\n\nlet original = {};\n\ntry {\n  original = $('IOC Extraction').first().json ?? {};\n} catch (error) {\n  original = {};\n}\n\n\n// ============================================================\n// BASE RESULT\n// ============================================================\n\nconst rawAlert = original.original_alert ?? original;\nconst result = {\n  original_alert: rawAlert,\n  rule_id: rawAlert.rule?.id ?? original.rule_id ?? 'N/A',\n  raw_log: rawAlert.full_log ?? null,\n  rule_level: original.rule_level ?? null,\n  agent_name: original.agent_name ?? null,\n  description: original.description ?? null,\n  source_ip: original.source_ip ?? null,\n\n  ioc: {\n    type: original.ioc?.type ?? null,\n    value: original.ioc?.value ?? null,\n  },\n\n  threat_intelligence: {\n    greynoise: {\n      status: \"not_checked\",\n      classification: null,\n      noise: null,\n      riot: null,\n    },\n\n    abuseipdb: {\n      status: \"not_checked\",\n      confidence: null,\n      reports: null,\n      tor: null,\n      country: null,\n      isp: null,\n      domain: null,\n    },\n\n    otx: {\n      status: \"not_checked\",\n      pulses: null,\n    },\n\n    virustotal: {\n      status: \"not_checked\",\n      reputation: null,\n      malicious: null,\n      suspicious: null,\n      harmless: null,\n      undetected: null,\n    },\n\n    threatfox: {\n      status: \"not_checked\",\n      result: null,\n    },\n\n    leakix: {\n      status: \"not_checked\",\n      services: [],\n      error: null,\n    },\n  },\n\n  risk_score: 0,\n\n  provider_coverage: 0,\n\n  assessment_confidence: \"LOW\",\n\n  evidence: [],\n\n  sources: [],\n};\n\n\n// ============================================================\n// HELPERS\n// ============================================================\n\nfunction addSource(name) {\n  if (!result.sources.includes(name)) {\n    result.sources.push(name);\n  }\n}\n\nfunction addEvidence(message) {\n  if (!result.evidence.includes(message)) {\n    result.evidence.push(message);\n  }\n}\n\n\n// ============================================================\n// PROCESS TI RESULTS\n// ============================================================\n\nfor (const item of items) {\n  const data = item.json ?? {};\n\n  // ----------------------------------------------------------\n  // GreyNoise\n  // ----------------------------------------------------------\n\n  if (\n    data.classification !== undefined ||\n    data.noise !== undefined ||\n    data.riot !== undefined\n  ) {\n    result.threat_intelligence.greynoise = {\n      status: \"success\",\n      classification: data.classification ?? null,\n      noise: data.noise ?? null,\n      riot: data.riot ?? null,\n    };\n\n    addSource(\"GreyNoise\");\n\n    if (data.classification === \"malicious\") {\n      result.risk_score += 30;\n\n      addEvidence(\n        \"GreyNoise classified the IP as malicious\"\n      );\n    } else if (data.classification === \"benign\") {\n      addEvidence(\n        \"GreyNoise classified the IP as benign\"\n      );\n    }\n  }\n\n\n  // ----------------------------------------------------------\n  // AbuseIPDB\n  // ----------------------------------------------------------\n\n  if (data.data?.abuseConfidenceScore !== undefined) {\n    const score =\n      Number(data.data.abuseConfidenceScore) || 0;\n\n    const ISO_MAP = {\n      \"AF\": \"Afghanistan\", \"AL\": \"Albania\", \"DZ\": \"Algeria\", \"AD\": \"Andorra\", \"AO\": \"Angola\", \"AG\": \"Antigua and Barbuda\",\n      \"AR\": \"Argentina\", \"AM\": \"Armenia\", \"AU\": \"Australia\", \"AT\": \"Austria\", \"AZ\": \"Azerbaijan\", \"BS\": \"Bahamas\",\n      \"BH\": \"Bahrain\", \"BD\": \"Bangladesh\", \"BB\": \"Barbados\", \"BY\": \"Belarus\", \"BE\": \"Belgium\", \"BZ\": \"Belize\",\n      \"BJ\": \"Benin\", \"BT\": \"Bhutan\", \"BO\": \"Bolivia\", \"BA\": \"Bosnia and Herzegovina\", \"BW\": \"Botswana\", \"BR\": \"Brazil\",\n      \"BN\": \"Brunei Darussalam\", \"BG\": \"Bulgaria\", \"BF\": \"Burkina Faso\", \"BI\": \"Burundi\", \"KH\": \"Cambodia\",\n      \"CM\": \"Cameroon\", \"CA\": \"Canada\", \"CV\": \"Cape Verde\", \"CF\": \"Central African Republic\", \"TD\": \"Chad\",\n      \"CL\": \"Chile\", \"CN\": \"China\", \"CO\": \"Colombia\", \"KM\": \"Comoros\", \"CG\": \"Congo\", \"CD\": \"Congo, Democratic Republic\",\n      \"CR\": \"Costa Rica\", \"CI\": \"Cote d'Ivoire\", \"HR\": \"Croatia\", \"CU\": \"Cuba\", \"CY\": \"Cyprus\", \"CZ\": \"Czech Republic\",\n      \"DK\": \"Denmark\", \"DJ\": \"Djibouti\", \"DM\": \"Dominica\", \"DO\": \"Dominican Republic\", \"EC\": \"Ecuador\", \"EG\": \"Egypt\",\n      \"SV\": \"El Salvador\", \"GQ\": \"Equatorial Guinea\", \"ER\": \"Eritrea\", \"EE\": \"Estonia\", \"ET\": \"Ethiopia\", \"FJ\": \"Fiji\",\n      \"FI\": \"Finland\", \"FR\": \"France\", \"GA\": \"Gabon\", \"GM\": \"Gambia\", \"GE\": \"Georgia\", \"DE\": \"Germany\", \"GH\": \"Ghana\",\n      \"GR\": \"Greece\", \"GT\": \"Guatemala\", \"GN\": \"Guinea\", \"GW\": \"Guinea-Bissau\", \"GY\": \"Guyana\", \"HT\": \"Haiti\",\n      \"HN\": \"Honduras\", \"HK\": \"Hong Kong\", \"HU\": \"Hungary\", \"IS\": \"Iceland\", \"IN\": \"India\", \"ID\": \"Indonesia\",\n      \"IR\": \"Iran\", \"IQ\": \"Iraq\", \"IE\": \"Ireland\", \"IL\": \"Israel\", \"IT\": \"Italy\", \"JM\": \"Jamaica\", \"JP\": \"Japan\",\n      \"JO\": \"Jordan\", \"KZ\": \"Kazakhstan\", \"KE\": \"Kenya\", \"KP\": \"Korea, North\", \"KR\": \"Korea, South\", \"KW\": \"Kuwait\",\n      \"KG\": \"Kyrgyzstan\", \"LA\": \"Laos\", \"LV\": \"Latvia\", \"LB\": \"Lebanon\", \"LS\": \"Lesotho\", \"LR\": \"Liberia\",\n      \"LY\": \"Libya\", \"LI\": \"Liechtenstein\", \"LT\": \"Lithuania\", \"LU\": \"Luxembourg\", \"MO\": \"Macao\", \"MK\": \"North Macedonia\",\n      \"MG\": \"Madagascar\", \"MW\": \"Malawi\", \"MY\": \"Malaysia\", \"MV\": \"Maldives\", \"ML\": \"Mali\", \"MT\": \"Malta\",\n      \"MX\": \"Mexico\", \"MD\": \"Moldova\", \"MC\": \"Monaco\", \"MN\": \"Mongolia\", \"ME\": \"Montenegro\", \"MA\": \"Morocco\",\n      \"MZ\": \"Mozambique\", \"MM\": \"Myanmar\", \"NA\": \"Namibia\", \"NP\": \"Nepal\", \"NL\": \"Netherlands\", \"NZ\": \"New Zealand\",\n      \"NI\": \"Nicaragua\", \"NE\": \"Niger\", \"NG\": \"Nigeria\", \"NO\": \"Norway\", \"OM\": \"Oman\", \"PK\": \"Pakistan\", \"PA\": \"Panama\",\n      \"PG\": \"Papua New Guinea\", \"PY\": \"Paraguay\", \"PE\": \"Peru\", \"PH\": \"Philippines\", \"PL\": \"Poland\", \"PT\": \"Portugal\",\n      \"QA\": \"Qatar\", \"RO\": \"Romania\", \"RU\": \"Russian Federation\", \"RW\": \"Rwanda\", \"SA\": \"Saudi Arabia\", \"SN\": \"Senegal\",\n      \"RS\": \"Serbia\", \"SC\": \"Seychelles\", \"SL\": \"Sierra Leone\", \"SG\": \"Singapore\", \"SK\": \"Slovakia\", \"SI\": \"Slovenia\",\n      \"SO\": \"Somalia\", \"ZA\": \"South Africa\", \"ES\": \"Spain\", \"LK\": \"Sri Lanka\", \"SD\": \"Sudan\", \"SE\": \"Sweden\",\n      \"CH\": \"Switzerland\", \"SY\": \"Syria\", \"TW\": \"Taiwan\", \"TJ\": \"Tajikistan\", \"TZ\": \"Tanzania\", \"TH\": \"Thailand\",\n      \"TN\": \"Tunisia\", \"TR\": \"Turkey\", \"UG\": \"Uganda\", \"UA\": \"Ukraine\", \"AE\": \"United Arab Emirates\",\n      \"GB\": \"United Kingdom\", \"US\": \"United States\", \"UY\": \"Uruguay\", \"UZ\": \"Uzbekistan\", \"VE\": \"Venezuela\",\n      \"VN\": \"Vietnam\", \"YE\": \"Yemen\", \"ZM\": \"Zambia\", \"ZW\": \"Zimbabwe\"\n    };\n\n    const rawCC = String(data.data?.countryCode || '').toUpperCase().trim();\n    const resolvedCountry = data.data?.countryName || ISO_MAP[rawCC] || (rawCC.length > 2 ? rawCC : (rawCC ? `Country (${rawCC})` : null));\n\n    result.threat_intelligence.abuseipdb = {\n      status: \"success\",\n      confidence: score,\n      reports: data.data.totalReports ?? null,\n      tor: data.data.isTor ?? null,\n      country: resolvedCountry,\n      country_code: rawCC,\n      isp: data.data.isp ?? null,\n      domain: data.data.domain ?? null,\n    };\n\n    addSource(\"AbuseIPDB\");\n\n    if (score >= 80) {\n      result.risk_score += 30;\n\n      addEvidence(\n        `AbuseIPDB confidence score is ${score}/100`\n      );\n    } else if (score >= 50) {\n      result.risk_score += 15;\n\n      addEvidence(\n        `AbuseIPDB confidence score is ${score}/100`\n      );\n    } else if (score > 0) {\n      result.risk_score += 5;\n\n      addEvidence(\n        `AbuseIPDB confidence score is ${score}/100`\n      );\n    }\n  }\n\n\n  // ----------------------------------------------------------\n  // VirusTotal\n  // ----------------------------------------------------------\n\n  if (data.data?.attributes) {\n    const attributes = data.data.attributes;\n\n    const stats =\n      attributes.last_analysis_stats ?? {};\n\n    const malicious =\n      Number(stats.malicious) || 0;\n\n    const suspicious =\n      Number(stats.suspicious) || 0;\n\n    result.threat_intelligence.virustotal = {\n      status: \"success\",\n      reputation:\n        attributes.reputation ?? null,\n      malicious,\n      suspicious,\n      harmless:\n        Number(stats.harmless) || 0,\n      undetected:\n        Number(stats.undetected) || 0,\n    };\n\n    addSource(\"VirusTotal\");\n\n    if (malicious >= 10) {\n      result.risk_score += 25;\n\n      addEvidence(\n        `VirusTotal reported ${malicious} malicious detections`\n      );\n    } else if (malicious > 0) {\n      result.risk_score += 15;\n\n      addEvidence(\n        `VirusTotal reported ${malicious} malicious detections`\n      );\n    }\n\n    if (suspicious > 0) {\n      addEvidence(\n        `VirusTotal reported ${suspicious} suspicious detections`\n      );\n    }\n  }\n\n\n  // ----------------------------------------------------------\n  // AlienVault OTX\n  // ----------------------------------------------------------\n\n  if (data.pulse_info !== undefined) {\n    const pulses =\n      Number(data.pulse_info?.count) || 0;\n\n    result.threat_intelligence.otx = {\n      status: \"success\",\n      pulses,\n    };\n\n    addSource(\"AlienVault OTX\");\n\n    if (pulses > 0) {\n      result.risk_score += 15;\n\n      addEvidence(\n        `AlienVault OTX has ${pulses} associated pulses`\n      );\n    }\n  }\n\n\n  // ----------------------------------------------------------\n  // ThreatFox\n  // ----------------------------------------------------------\n\n  if (data.query_status !== undefined) {\n    const status =\n      data.query_status === \"no_result\"\n        ? \"no_result\"\n        : \"success\";\n\n    result.threat_intelligence.threatfox = {\n      status,\n      result:\n        typeof data.data === \"string\"\n          ? data.data\n          : data.data ?? null,\n    };\n\n    addSource(\"ThreatFox\");\n\n    if (status === \"success\") {\n      addEvidence(\n        \"ThreatFox returned an IOC result\"\n      );\n    }\n  }\n\n\n  // ----------------------------------------------------------\n  // LeakIX SUCCESS\n  // ----------------------------------------------------------\n\n  if (\n    data.services !== undefined ||\n    data.summary !== undefined ||\n    data.host !== undefined\n  ) {\n    result.threat_intelligence.leakix = {\n      status: \"success\",\n\n      services:\n        Array.isArray(data.services)\n          ? data.services\n          : [],\n\n      error: null,\n    };\n\n    addSource(\"LeakIX\");\n\n    if (\n      Array.isArray(data.services) &&\n      data.services.length > 0\n    ) {\n      addEvidence(\n        `LeakIX reported ${data.services.length} exposed services`\n      );\n    }\n  }\n\n\n  // ----------------------------------------------------------\n  // PROVIDER ERROR\n  // ----------------------------------------------------------\n\n  if (data.error) {\n    const errorCode =\n      data.error.code ?? null;\n\n    const errorMessage =\n      data.error.message ??\n      \"Unknown provider error\";\n\n    // LeakIX timeout/error\n    if (\n      errorCode === \"ETIMEDOUT\" ||\n      errorMessage.toLowerCase().includes(\"leakix\")\n    ) {\n      result.threat_intelligence.leakix = {\n        status: \"unavailable\",\n        services: [],\n        error: errorCode ?? errorMessage,\n      };\n\n      addSource(\"LeakIX\");\n\n      addEvidence(\n        `LeakIX unavailable: ${errorCode ?? errorMessage}`\n      );\n    }\n  }\n}\n\n\n// ============================================================\n// NORMALIZE RISK SCORE\n// ============================================================\n\nresult.risk_score =\n  Math.min(\n    Math.max(result.risk_score, 0),\n    100\n  );\n\n\n// ============================================================\n// PROVIDER COVERAGE\n// ============================================================\n\nconst providers =\n  Object.values(\n    result.threat_intelligence\n  );\n\nconst totalProviders =\n  providers.length;\n\nconst checkedProviders =\n  providers.filter(\n    provider =>\n      provider.status === \"success\" ||\n      provider.status === \"no_result\" ||\n      provider.status === \"unavailable\"\n  ).length;\n\nconst successfulProviders =\n  providers.filter(\n    provider =>\n      provider.status === \"success\" ||\n      provider.status === \"no_result\"\n  ).length;\n\nresult.provider_coverage =\n  totalProviders === 0\n    ? 0\n    : Math.round(\n        (checkedProviders / totalProviders) * 100\n      );\n\n\n// ============================================================\n// ASSESSMENT CONFIDENCE\n// ============================================================\n//\n// Confidence reflects corroborating intelligence,\n// not simply how many providers answered.\n//\n\nconst maliciousSignals = [];\n\nif (\n  result.threat_intelligence.greynoise.classification ===\n  \"malicious\"\n) {\n  maliciousSignals.push(\"GreyNoise\");\n}\n\nif (\n  result.threat_intelligence.abuseipdb.confidence !== null &&\n  result.threat_intelligence.abuseipdb.confidence >= 80\n) {\n  maliciousSignals.push(\"AbuseIPDB\");\n}\n\nif (\n  result.threat_intelligence.otx.pulses !== null &&\n  result.threat_intelligence.otx.pulses > 0\n) {\n  maliciousSignals.push(\"OTX\");\n}\n\nif (\n  result.threat_intelligence.virustotal.malicious !== null &&\n  result.threat_intelligence.virustotal.malicious > 0\n) {\n  maliciousSignals.push(\"VirusTotal\");\n}\n\nif (maliciousSignals.length >= 3) {\n  result.assessment_confidence = \"HIGH\";\n} else if (maliciousSignals.length === 2) {\n  result.assessment_confidence = \"MEDIUM\";\n} else if (maliciousSignals.length === 1) {\n  result.assessment_confidence = \"LOW\";\n} else {\n  result.assessment_confidence = \"LOW\";\n}\n\n\n// ============================================================\n// FINAL SEVERITY\n// ============================================================\n\nif (result.risk_score >= 80) {\n  result.severity = \"CRITICAL\";\n} else if (result.risk_score >= 50) {\n  result.severity = \"HIGH\";\n} else if (result.risk_score >= 25) {\n  result.severity = \"MEDIUM\";\n} else {\n  result.severity = \"LOW\";\n}\n\n\n// ============================================================\n// SUMMARY FLAGS\n// ============================================================\n\nresult.has_malicious_evidence =\n  maliciousSignals.length > 0;\n\nresult.malicious_sources =\n  maliciousSignals;\n\nresult.provider_failures =\n  providers\n    .filter(\n      provider =>\n        provider.status === \"unavailable\"\n    )\n    .map((provider, index) => index);\n\n\n// ============================================================\n// RETURN ONE ENRICHED OBJECT\n// ============================================================\n\nreturn [\n  {\n    json: result,\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1664,
+        -96
+      ],
+      "id": "4a42b475-1c05-4ef7-b4e8-e2f528e88582",
+      "name": "TI Aggregator",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst ti = data.threat_intelligence ?? {};\n\nconst normalized = {\n  alert: {\n    original_alert: data.original_alert ?? null,\n    rule_id: data.rule_id ?? data.original_alert?.rule?.id ?? null,\n    raw_log: data.raw_log ?? data.original_alert?.full_log ?? null,\n    rule_level: data.rule_level ?? null,\n    agent_name: data.agent_name ?? null,\n    description: data.description ?? null,\n    source_ip: data.source_ip ?? null,\n\n    severity: data.severity ?? \"LOW\",\n    risk_score: data.risk_score ?? 0,\n\n    ioc: {\n      type: data.ioc?.type ?? null,\n      value: data.ioc?.value ?? null,\n    },\n  },\n\n  threat_intelligence: {\n    greynoise: {\n      status: ti.greynoise?.status ?? \"not_checked\",\n      classification: ti.greynoise?.classification ?? null,\n      noise: ti.greynoise?.noise ?? null,\n      riot: ti.greynoise?.riot ?? null,\n    },\n\n    abuseipdb: {\n      status: ti.abuseipdb?.status ?? \"not_checked\",\n      confidence_score: ti.abuseipdb?.confidence ?? null,\n      total_reports: ti.abuseipdb?.reports ?? null,\n      tor: ti.abuseipdb?.tor ?? null,\n      country: ti.abuseipdb?.country ?? null,\n      isp: ti.abuseipdb?.isp ?? null,\n      domain: ti.abuseipdb?.domain ?? null,\n    },\n\n    otx: {\n      status: ti.otx?.status ?? \"not_checked\",\n      pulses: ti.otx?.pulses ?? null,\n    },\n\n    virustotal: {\n      status: ti.virustotal?.status ?? \"not_checked\",\n      reputation: ti.virustotal?.reputation ?? null,\n      malicious: ti.virustotal?.malicious ?? null,\n      suspicious: ti.virustotal?.suspicious ?? null,\n      harmless: ti.virustotal?.harmless ?? null,\n      undetected: ti.virustotal?.undetected ?? null,\n    },\n\n    threatfox: {\n      status: ti.threatfox?.status ?? \"not_checked\",\n      result: ti.threatfox?.result ?? null,\n    },\n\n    leakix: {\n      status: ti.leakix?.status ?? \"not_checked\",\n      services: ti.leakix?.services ?? [],\n      error: ti.leakix?.error ?? null,\n    },\n  },\n\n  assessment: {\n    risk_score: data.risk_score ?? 0,\n    severity: data.severity ?? \"LOW\",\n    confidence: data.assessment_confidence ?? \"LOW\",\n\n    has_malicious_evidence:\n      data.has_malicious_evidence ?? false,\n\n    malicious_sources:\n      data.malicious_sources ?? [],\n\n    evidence:\n      data.evidence ?? [],\n\n    provider_coverage:\n      data.provider_coverage ?? 0,\n\n    provider_failures:\n      data.provider_failures ?? [],\n  },\n\n  sources: data.sources ?? [],\n};\n\nreturn [\n  {\n    json: normalized,\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1440,
+        -96
+      ],
+      "id": "64522aa8-8c64-4e67-9877-4ca14b712641",
+      "name": "TI Normalizer",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// ============================================================\n// IOC EXTRACTION + CLASSIFICATION\n// ============================================================\n// Purpose:\n//   1. Preserve the original alert.\n//   2. Extract externally enrichable IOCs from known fields,\n//      nested fields, and free text.\n//   3. Distinguish public/internal IPs.\n//   4. Prevent filenames such as \"malicious.html\" from being\n//      incorrectly classified as domains.\n//   5. Route to TI when at least one external IOC exists.\n// ============================================================\n\n\n// ------------------------------------------------------------\n// Resolve incoming alert\n// ------------------------------------------------------------\n\nconst input = $json;\n\nlet alert = input;\n\n// Webhook/connector may provide the Wazuh alert directly\n// or under body.\nif (input?.body && typeof input.body === 'object') {\n  alert = input.body;\n}\n\nif (typeof input?.body === 'string') {\n  try {\n    alert = JSON.parse(input.body);\n  } catch {\n    alert = input;\n  }\n}\n\nif (!alert || typeof alert !== 'object') {\n  return {\n    ...input,\n\n    ioc: {\n      type: 'none',\n      value: null,\n      public_ips: [],\n      private_ips: [],\n      domains: [],\n      urls: [],\n      hashes: []\n    },\n\n    ti_required: false,\n    internal_analysis_required: true\n  };\n}\n\n\n// ------------------------------------------------------------\n// Helpers\n// ------------------------------------------------------------\n\nfunction isValidIPv4(value) {\n  if (typeof value !== 'string') return false;\n\n  const ip = value.trim();\n  const parts = ip.split('.');\n\n  if (parts.length !== 4) return false;\n\n  return parts.every(part => {\n    if (!/^\\d+$/.test(part)) return false;\n\n    const n = Number(part);\n    return n >= 0 && n <= 255;\n  });\n}\n\n\nfunction isPrivateIPv4(ip) {\n  const [a, b] = ip.split('.').map(Number);\n\n  // RFC1918\n  if (a === 10) return true;\n  if (a === 172 && b >= 16 && b <= 31) return true;\n  if (a === 192 && b === 168) return true;\n\n  // Loopback\n  if (a === 127) return true;\n\n  // Link-local\n  if (a === 169 && b === 254) return true;\n\n  // Unspecified\n  if (a === 0) return true;\n\n  return false;\n}\n\n\nfunction addString(value, set) {\n  if (typeof value !== 'string') return;\n\n  const v = value.trim();\n\n  if (v.length > 0) {\n    set.add(v);\n  }\n}\n\n\n// ------------------------------------------------------------\n// IOC storage\n// ------------------------------------------------------------\n\nconst publicIPs = new Set();\nconst privateIPs = new Set();\nconst domains = new Set();\nconst urls = new Set();\nconst hashes = new Set();\n\n\n// ------------------------------------------------------------\n// IP extraction\n// ------------------------------------------------------------\n\nfunction processIP(value) {\n  if (typeof value !== 'string') return;\n\n  const ip = value.trim();\n\n  if (!isValidIPv4(ip)) return;\n\n  if (isPrivateIPv4(ip)) {\n    privateIPs.add(ip);\n  } else {\n    publicIPs.add(ip);\n  }\n}\n\n\n// Known IP fields\nconst knownIPs = [\n  alert.data?.srcip,\n  alert.data?.dstip,\n  alert.data?.src_ip,\n  alert.data?.dst_ip,\n  alert.data?.source_ip,\n  alert.data?.destination_ip,\n\n  alert.srcip,\n  alert.dstip,\n  alert.src_ip,\n  alert.dst_ip,\n  alert.source_ip,\n  alert.destination_ip,\n\n  alert.ip\n];\n\nfor (const value of knownIPs) {\n  processIP(value);\n}\n\n\n// ------------------------------------------------------------\n// URL extraction\n// ------------------------------------------------------------\n\nfunction processURL(value) {\n  if (typeof value !== 'string') return;\n\n  const v = value.trim();\n\n  if (/^https?:\\/\\//i.test(v)) {\n    urls.add(v);\n  }\n}\n\n\nconst knownURLs = [\n  alert.data?.url,\n  alert.data?.uri,\n  alert.data?.link,\n\n  alert.url,\n  alert.uri,\n  alert.link\n];\n\nfor (const value of knownURLs) {\n  processURL(value);\n}\n\n\n// ------------------------------------------------------------\n// Hash extraction\n// ------------------------------------------------------------\n\nfunction processHash(value) {\n  if (typeof value !== 'string') return;\n\n  const hash = value.trim().toLowerCase();\n\n  if (/^[a-f0-9]{32}$/.test(hash)) {\n    hashes.add(hash);\n    return;\n  }\n\n  if (/^[a-f0-9]{40}$/.test(hash)) {\n    hashes.add(hash);\n    return;\n  }\n\n  if (/^[a-f0-9]{64}$/.test(hash)) {\n    hashes.add(hash);\n  }\n}\n\n\nconst knownHashes = [\n  alert.data?.md5,\n  alert.data?.sha1,\n  alert.data?.sha256,\n  alert.data?.hash,\n  alert.data?.file_hash,\n\n  alert.md5,\n  alert.sha1,\n  alert.sha256,\n  alert.hash,\n  alert.file_hash\n];\n\nfor (const value of knownHashes) {\n  processHash(value);\n}\n\n\n// ------------------------------------------------------------\n// Domain extraction\n// ------------------------------------------------------------\n//\n// IMPORTANT:\n// Do NOT treat arbitrary \"word.extension\" strings such as:\n//\n//   malicious.html\n//   malware.exe\n//   document.pdf\n//\n// as domains.\n//\n// We therefore only accept recognized public DNS suffixes here.\n// ------------------------------------------------------------\n\nconst VALID_TLDS = new Set([\n  'com',\n  'net',\n  'org',\n  'io',\n  'co',\n  'in',\n  'uk',\n  'de',\n  'fr',\n  'us',\n  'ca',\n  'au',\n  'info',\n  'biz',\n  'xyz',\n  'online',\n  'site',\n  'app',\n  'dev',\n  'cloud',\n  'me',\n  'tv',\n  'tech',\n  'pro',\n  'gov',\n  'edu'\n]);\n\n\nfunction isPlausibleDomain(value) {\n  if (typeof value !== 'string') return false;\n\n  let domain = value.trim().toLowerCase();\n\n  // Remove URL prefix if present\n  domain = domain.replace(/^https?:\\/\\//, '');\n\n  // Remove path\n  domain = domain.split('/')[0];\n\n  // Remove port\n  domain = domain.split(':')[0];\n\n  if (!domain.includes('.')) return false;\n\n  const parts = domain.split('.');\n\n  if (parts.length < 2) return false;\n\n  const tld = parts[parts.length - 1];\n\n  if (!VALID_TLDS.has(tld)) {\n    return false;\n  }\n\n  // Basic domain label validation\n  for (const part of parts) {\n    if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(part)) {\n      return false;\n    }\n  }\n\n  // Never treat obvious file extensions as domains\n  const fileExtensions = new Set([\n    'html',\n    'htm',\n    'exe',\n    'dll',\n    'js',\n    'json',\n    'xml',\n    'txt',\n    'pdf',\n    'doc',\n    'docx',\n    'xls',\n    'xlsx',\n    'zip',\n    'rar',\n    '7z',\n    'png',\n    'jpg',\n    'jpeg',\n    'gif',\n    'bmp',\n    'svg',\n    'log',\n    'conf',\n    'cfg',\n    'ini',\n    'sh',\n    'bat',\n    'ps1',\n    'py',\n    'java'\n  ]);\n\n  if (fileExtensions.has(tld)) {\n    return false;\n  }\n\n  return true;\n}\n\n\nfunction processDomain(value) {\n  if (!isPlausibleDomain(value)) return;\n\n  let domain = value.trim().toLowerCase();\n\n  domain = domain.replace(/^https?:\\/\\//, '');\n  domain = domain.split('/')[0];\n  domain = domain.split(':')[0];\n\n  domains.add(domain);\n}\n\n\n// Known domain fields\nconst knownDomains = [\n  alert.data?.domain,\n  alert.data?.hostname,\n  alert.data?.host,\n\n  alert.domain,\n  alert.hostname,\n  alert.host\n];\n\nfor (const value of knownDomains) {\n  processDomain(value);\n}\n\n\n// ------------------------------------------------------------\n// Scan arbitrary nested content\n// ------------------------------------------------------------\n\nfunction scanText(text) {\n  if (typeof text !== 'string') return;\n\n  // ----------------------------\n  // URLs\n  // ----------------------------\n\n  const foundURLs =\n    text.match(\n      /\\bhttps?:\\/\\/[^\\s\"'<>]+/gi\n    ) ?? [];\n\n  for (const rawURL of foundURLs) {\n    const cleanURL =\n      rawURL.replace(/[),.;]+$/, '');\n\n    processURL(cleanURL);\n  }\n\n\n  // ----------------------------\n  // IPv4\n  // ----------------------------\n\n  const foundIPs =\n    text.match(\n      /\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b/g\n    ) ?? [];\n\n  for (const ip of foundIPs) {\n    processIP(ip);\n  }\n\n\n  // ----------------------------\n  // Hashes\n  // ----------------------------\n\n  const foundHashes =\n    text.match(\n      /\\b[a-fA-F0-9]{32}\\b|\\b[a-fA-F0-9]{40}\\b|\\b[a-fA-F0-9]{64}\\b/g\n    ) ?? [];\n\n  for (const hash of foundHashes) {\n    processHash(hash);\n  }\n\n\n  // ----------------------------\n  // Domains\n  // ----------------------------\n\n  const foundDomainCandidates =\n    text.match(\n      /\\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\\.)+[a-zA-Z]{2,63}\\b/g\n    ) ?? [];\n\n  for (const candidate of foundDomainCandidates) {\n    processDomain(candidate);\n  }\n}\n\n\nfunction scan(value, depth = 0) {\n  // Prevent excessive recursion\n  if (depth > 10) return;\n\n  if (value === null || value === undefined) {\n    return;\n  }\n\n  // String\n  if (typeof value === 'string') {\n    scanText(value);\n    return;\n  }\n\n  // Array\n  if (Array.isArray(value)) {\n    for (const item of value) {\n      scan(item, depth + 1);\n    }\n    return;\n  }\n\n  // Object\n  if (typeof value === 'object') {\n\n    for (const [key, child] of Object.entries(value)) {\n\n      const keyLower = key.toLowerCase();\n\n\n      // ----------------------------\n      // Hash fields\n      // ----------------------------\n\n      if (\n        keyLower === 'md5' ||\n        keyLower === 'sha1' ||\n        keyLower === 'sha256' ||\n        keyLower.includes('file_hash') ||\n        keyLower === 'hash'\n      ) {\n        processHash(child);\n      }\n\n\n      // ----------------------------\n      // IP fields\n      // ----------------------------\n\n      if (\n        keyLower === 'srcip' ||\n        keyLower === 'dstip' ||\n        keyLower === 'src_ip' ||\n        keyLower === 'dst_ip' ||\n        keyLower === 'source_ip' ||\n        keyLower === 'destination_ip'\n      ) {\n        processIP(child);\n      }\n\n\n      // ----------------------------\n      // URL fields\n      // ----------------------------\n\n      if (\n        keyLower === 'url' ||\n        keyLower === 'uri' ||\n        keyLower === 'link'\n      ) {\n        processURL(child);\n      }\n\n\n      // ----------------------------\n      // Domain fields\n      // ----------------------------\n\n      if (\n        keyLower === 'domain' ||\n        keyLower === 'hostname'\n      ) {\n        processDomain(child);\n      }\n\n\n      // Continue recursively\n      scan(child, depth + 1);\n    }\n  }\n}\n\n\n// Scan everything\nscan(alert);\n\n\n// Explicit free-text sources\nif (typeof alert.full_log === 'string') {\n  scanText(alert.full_log);\n}\n\nif (typeof alert.rule?.description === 'string') {\n  scanText(alert.rule.description);\n}\n\n\n// ------------------------------------------------------------\n// Convert to arrays\n// ------------------------------------------------------------\n\nconst publicIpList = [...publicIPs];\nconst privateIpList = [...privateIPs];\nconst domainList = [...domains];\nconst urlList = [...urls];\nconst hashList = [...hashes];\n\n\n// ------------------------------------------------------------\n// Determine primary IOC\n// ------------------------------------------------------------\n//\n// Priority:\n//   1. Public IP\n//   2. URL\n//   3. Domain\n//   4. Hash\n//   5. Private IP\n//\n// This is only the \"primary\" IOC.\n// All discovered IOCs are preserved in their arrays.\n// ------------------------------------------------------------\n\nlet iocType = 'none';\nlet iocValue = null;\n\nif (publicIpList.length > 0) {\n\n  iocType = 'public_ip';\n  iocValue = publicIpList[0];\n\n} else if (urlList.length > 0) {\n\n  iocType = 'url';\n  iocValue = urlList[0];\n\n} else if (domainList.length > 0) {\n\n  iocType = 'domain';\n  iocValue = domainList[0];\n\n} else if (hashList.length > 0) {\n\n  iocType = 'hash';\n  iocValue = hashList[0];\n\n} else if (privateIpList.length > 0) {\n\n  iocType = 'private_ip';\n  iocValue = privateIpList[0];\n}\n\n\n// ------------------------------------------------------------\n// TI routing decision\n// ------------------------------------------------------------\n\nconst externalTIRequired =\n  publicIpList.length > 0 ||\n  urlList.length > 0 ||\n  domainList.length > 0 ||\n  hashList.length > 0;\n\n\nconst internalAnalysisRequired =\n  !externalTIRequired;\n\n\n// ------------------------------------------------------------\n// Return normalized object while preserving the raw alert\n// ------------------------------------------------------------\n\nreturn {\n  ...input,\n\n  // Preserve the original payload for downstream analysis\n  original_alert: alert,\n\n  ioc: {\n    type: iocType,\n    value: iocValue,\n\n    public_ips: publicIpList,\n    private_ips: privateIpList,\n\n    domains: domainList,\n    urls: urlList,\n    hashes: hashList\n  },\n\n  ti_required: externalTIRequired,\n\n  internal_analysis_required: internalAnalysisRequired\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3008,
+        96
+      ],
+      "id": "bea10546-d69e-47ff-92c1-ea13b845721f",
+      "name": "IOC Extraction",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "11ead0ab-f964-4cfa-ab28-1b6cd4ab3894",
+              "leftValue": "={{ $json.ti_required }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -2336,
+        96
+      ],
+      "id": "012adb3e-d9e1-4d48-80ca-1398d14f042c",
+      "name": "TI required?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconst alert = (data.body && typeof data.body === 'object') ? data.body : (data.original_alert ?? data);\n\nconst rule = alert.rule ?? {};\nconst eventData = alert.data ?? {};\n\nconst user = eventData.srcuser || eventData.user || null;\nconst targetUser = eventData.dstuser || eventData.target_user || null;\nconst command = eventData.command || null;\n\nconst mitreIds = Array.isArray(rule.mitre?.id) ? rule.mitre.id : (rule.mitre?.id ? [rule.mitre.id] : []);\nconst mitreTactics = Array.isArray(rule.mitre?.tactic) ? rule.mitre.tactic : (rule.mitre?.tactic ? [rule.mitre.tactic] : []);\nconst mitreTechniques = Array.isArray(rule.mitre?.technique) ? rule.mitre.technique : (rule.mitre?.technique ? [rule.mitre.technique] : []);\n\nconst result = {\n  ...data,\n  analysis_type: \"internal\",\n\n  alert: {\n    rule_level: Number(rule.level ?? data.rule_level ?? 0),\n    agent_name: alert.agent?.name ?? data.agent_name ?? 'blusoc',\n    description: rule.description ?? data.description ?? 'Internal Security Event',\n    source_ip: data.source_ip ?? '127.0.0.1',\n    original_alert: alert\n  },\n\n  ioc: data.ioc ?? {\n    type: \"none\",\n    value: null,\n    public_ips: [],\n    private_ips: [],\n    domains: [],\n    urls: [],\n    hashes: []\n  },\n\n  internal_analysis: {\n    required: true,\n    rule_id: rule.id ?? data.rule_id ?? null,\n    user: user,\n    target_user: targetUser,\n    command: command,\n    mitre: {\n      ids: mitreIds,\n      tactics: mitreTactics,\n      techniques: mitreTechniques\n    }\n  }\n};\n\nreturn [{ json: result }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2160,
+        784
+      ],
+      "id": "183347a5-5413-44ee-ad6d-408493bb3cc2",
+      "name": "Internal Analysis",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst alert = data.alert ?? data;\nconst analysis = data.internal_analysis ?? {};\n\nconst ruleLevel = Number(alert.rule_level ?? data.rule_level ?? 0);\nconst agentName = alert.agent_name ?? data.agent_name ?? 'blusoc';\nconst description = alert.description ?? data.description ?? 'Internal Security Event';\nconst sourceIp = alert.source_ip ?? data.source_ip ?? '127.0.0.1';\nconst ruleId = analysis.rule_id ?? data.rule_id ?? null;\n\nconst user = analysis.user ?? 'system';\nconst targetUser = analysis.target_user ?? 'root';\nconst command = analysis.command ?? 'N/A';\nconst mitre = analysis.mitre ?? { ids: [], tactics: [], techniques: [] };\n\nconst severity = ruleLevel >= 15 ? 'CRITICAL' : ruleLevel >= 12 ? 'HIGH' : ruleLevel >= 8 ? 'MEDIUM' : 'LOW';\nconst riskScore = severity === 'CRITICAL' ? 90 : severity === 'HIGH' ? 70 : severity === 'MEDIUM' ? 40 : 10;\n\nconst summary = `Internal host security event detected on ${agentName}. User: ${user}, Command: ${command}. Action triggered rule level ${ruleLevel}.`;\nconst recommendation = \"Verify user authorization for executed commands, inspect audit logs, and ensure least-privilege access.\";\n\nreturn [{\n  json: {\n    incident: {\n      source_ip: sourceIp,\n      agent_name: agentName,\n      rule_level: ruleLevel,\n      rule_id: ruleId,\n      description: description,\n      severity: severity,\n      risk_score: riskScore,\n      analysis_type: 'internal',\n      internal_analysis: analysis,\n      threat_intelligence: { status: 'not_required' },\n      assessment: {\n        confidence: 'HIGH',\n        provider_coverage: 0,\n        has_malicious_evidence: false,\n        malicious_sources: [],\n        evidence: [`Wazuh rule ${ruleId ?? 'internal'} generated host security telemetry`],\n        provider_failures: [],\n        verdict: 'INTERNAL_SECURITY_EVENT'\n      },\n      original_alert: alert.original_alert ?? data.original_alert ?? alert,\n      raw_log: alert.original_alert?.full_log ?? data.raw_log ?? null,\n      summary: summary,\n      recommendation: recommendation\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        176
+      ],
+      "id": "81479eb9-524b-4c07-8ca9-e7cdc27b0ae0",
+      "name": "Internal Incident",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -992,
+        16
+      ],
+      "id": "ddc0deab-15d6-421c-8e4c-3c5c806622bf",
+      "name": "Merge2"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// DEDUP CHECK (ENTERPRISE FINGERPRINTING & DE-SPAM)\n// ============================================================\nconst DEDUP_WINDOW_MS = 180 * 1000; // 3-minute dedup window\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.seenAlerts) staticData.seenAlerts = {};\n\nconst data = $input.first().json;\n\n// Check test bypass\nif (data.test || data.body?.test || data.original_alert?.test) {\n  return [{ json: data }];\n}\n\n// Clean up old entries\nconst now = Date.now();\nfor (const [k, ts] of Object.entries(staticData.seenAlerts)) {\n  if (now - Number(ts) > DEDUP_WINDOW_MS) {\n    delete staticData.seenAlerts[k];\n  }\n}\n\n// Extract identity fields\nconst alertObj = (data.body && typeof data.body === 'object') ? data.body : (data.original_alert ?? data);\nconst ruleId = String(alertObj.rule?.id || data.rule_id || 'norule');\nconst agentName = String(alertObj.agent?.name || data.agent_name || 'blusoc');\nconst sourceIp = String(alertObj.data?.srcip || alertObj.srcip || data.source_ip || '');\nconst command = String(alertObj.data?.command || '');\nconst user = String(alertObj.data?.srcuser || alertObj.data?.user || '');\n\n// Build unique deduplication fingerprint\n// High-volume telemetry families (vulnerability findings 235xx, compliance 19xxx,\n// O365 audit 915xx, Suricata decode noise 8661x) are fingerprinted by rule+agent\n// only, so a vulnerability scan or audit burst cannot flood the SOAR pipeline.\nconst HIGH_VOLUME = /^(235\\d|19\\d{3}|915\\d{2}|8661[123])$/.test(ruleId);\nlet dedupKey = \"\";\nif (HIGH_VOLUME) {\n  dedupKey = `HV|${ruleId}|${agentName}`;\n} else if (sourceIp && !sourceIp.startsWith('127.') && !sourceIp.startsWith('192.168.') && !sourceIp.startsWith('10.')) {\n  dedupKey = `EXT|${ruleId}|${agentName}|${sourceIp}`;\n} else if (command || user) {\n  dedupKey = `INT|${ruleId}|${agentName}|${user}|${command}`;\n} else {\n  dedupKey = `GEN|${ruleId}|${agentName}|${alertObj.rule?.description || 'alert'}`;\n}\n\n// If already seen in current window, SUPPRESS duplicate!\nif (staticData.seenAlerts[dedupKey]) {\n  return [];\n}\n\n// Mark as seen\nstaticData.seenAlerts[dedupKey] = now;\nreturn [{ json: data }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2752,
+        96
+      ],
+      "id": "cd40e588-2795-450a-9c7a-6e398a160e37",
+      "name": "Dedup Check",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// ============================================================\n// LAYA - METRIC & THREAT VERIFICATION (SECONDARY DETERMINATION)\n// ============================================================\n// Multi-metric cross-correlation:\n// 1. External Threat Intel metrics (VirusTotal, AbuseIPDB, GreyNoise, etc.)\n// 2. Internal host & lateral movement telemetry\n// 3. Produces corroborated threat score & confidence level\n// ============================================================\n\nconst data = $input.first().json;\nconst incident = data.incident ?? data;\n\nconst ruleLevel = Number(incident.rule_level ?? 0);\nconst ti = incident.threat_intelligence ?? {};\nconst assessment = incident.assessment ?? {};\nconst maliciousSources = assessment.malicious_sources ?? [];\nconst hasMaliciousEvidence = assessment.has_malicious_evidence === true || maliciousSources.length > 0;\nconst riskScore = Number(incident.risk_score ?? assessment.risk_score ?? 0);\n\n// Telemetry classification: Routine low-level telemetry with no malicious evidence\nif (ruleLevel < 7 && !hasMaliciousEvidence) {\n  incident.assessment = incident.assessment ?? {};\n  incident.assessment.verdict = 'BENIGN_TELEMETRY';\n  incident.assessment.confidence = 'HIGH';\n  incident.severity = 'LOW';\n  incident.laya_verification = {\n    stage: \"Secondary Verification\",\n    verdict: 'BENIGN_TELEMETRY',\n    confidence: 'HIGH',\n    rule_level: ruleLevel,\n    evaluated_at: new Date().toISOString()\n  };\n  return [{ json: { incident } }];\n}\n\n// ------------------------------------------------------------\n// SCENARIO 3: INTERNAL ALERT (RFC 1918 / Local System Event)\n// ------------------------------------------------------------\nif (incident.analysis_type === 'internal') {\n  const internal = incident.internal_analysis ?? {};\n  incident.assessment = incident.assessment ?? {};\n  incident.assessment.verdict = (ruleLevel >= 10) ? 'INTERNAL_SECURITY_EVENT' : 'BENIGN_INTERNAL_EVENT';\n  incident.assessment.confidence = (ruleLevel >= 10) ? 'HIGH' : 'MEDIUM';\n  incident.severity = (ruleLevel >= 12) ? 'CRITICAL' : (ruleLevel >= 10) ? 'HIGH' : (ruleLevel >= 8) ? 'MEDIUM' : 'LOW';\n  \n  incident.laya_verification = {\n    stage: \"Secondary Verification\",\n    verdict: incident.assessment.verdict,\n    confidence: incident.assessment.confidence,\n    rule_level: ruleLevel,\n    evaluated_at: new Date().toISOString()\n  };\n  return [{ json: { incident } }];\n}\n\n// ------------------------------------------------------------\n// SCENARIOS 1 & 2: EXTERNAL ALERTS (Corroborated vs Training)\n// ------------------------------------------------------------\n\nif (hasMaliciousEvidence || riskScore >= 50) {\n  // Scenario 1: Confirmed Threat Intelligence Corroboration\n  incident.assessment.verdict = 'TRUE_POSITIVE_THREAT';\n  incident.severity = (riskScore >= 80 || ruleLevel >= 12) ? 'CRITICAL' : 'HIGH';\n  incident.assessment.confidence = (maliciousSources.length >= 2) ? 'HIGH' : 'MEDIUM';\n} else {\n  // Scenario 2: Student Training Alert or Uncorroborated Lab IP\n  incident.assessment.verdict = 'UNCORROBORATED_OR_TRAINING';\n  incident.assessment.confidence = 'LOW';\n  incident.severity = (ruleLevel >= 12) ? 'HIGH' : (ruleLevel >= 8) ? 'MEDIUM' : 'LOW';\n  incident.assessment.evidence = incident.assessment.evidence ?? [];\n  incident.assessment.evidence.push(\n    `Rule level ${ruleLevel} triggered. External threat intelligence providers reported 0 malicious indicators. Forwarded for student analyst triage.`\n  );\n}\n\nincident.laya_verification = {\n  stage: \"Secondary Verification\",\n  verdict: incident.assessment.verdict,\n  confidence: incident.assessment.confidence,\n  risk_score: riskScore,\n  has_malicious_evidence: hasMaliciousEvidence,\n  evaluated_at: new Date().toISOString()\n};\n\nreturn [{ json: { incident } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        16
+      ],
+      "id": "90f95fee-5d28-46e1-8bc4-5016404569f0",
+      "name": "TI Corroboration & Scoring",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// EXTERNAL INCIDENT NORMALIZER\n// ============================================================\n// Wraps TI Normalizer output into { incident: {...} }\n// to match Internal Incident schema.\n// Both branches now produce one common schema for Merge2.\n// ============================================================\n\nconst data = $input.first().json;\n\nconst alert = data.alert ?? {};\nconst ti = data.threat_intelligence ?? {};\nconst assessment = data.assessment ?? {};\n\nconst incident = {\n  original_alert: alert.original_alert ?? data.original_alert ?? null,\n  rule_id: alert.rule_id ?? alert.original_alert?.rule?.id ?? 'N/A',\n  raw_log: alert.raw_log ?? alert.original_alert?.full_log ?? null,\n  source_ip: alert.source_ip ?? null,\n  agent_name: alert.agent_name ?? null,\n  rule_level: alert.rule_level ?? null,\n  description: alert.description ?? null,\n  severity: alert.severity ?? 'LOW',\n  risk_score: Number(alert.risk_score ?? 0),\n\n  ioc: alert.ioc ?? { type: null, value: null },\n\n  analysis_type: 'external',\n\n  internal_analysis: null,\n\n  threat_intelligence: ti,\n\n  assessment: {\n    confidence: assessment.confidence ?? 'LOW',\n    provider_coverage: assessment.provider_coverage ?? 0,\n    has_malicious_evidence: assessment.has_malicious_evidence ?? false,\n    malicious_sources: assessment.malicious_sources ?? [],\n    evidence: assessment.evidence ?? [],\n    provider_failures: assessment.provider_failures ?? [],\n  },\n\n  summary: null,\n  recommendation: null,\n};\n\nreturn [{ json: { incident } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        -96
+      ],
+      "id": "901ce482-653d-4031-a930-7319b24ea41f",
+      "name": "External Incident",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e1f2a3b4-c5d6-7890-abcd-123456789abc",
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "HIGH",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "f2a3b4c5-d6e7-8901-bcde-23456789abcd",
+              "leftValue": "={{ $json.severity }}",
+              "rightValue": "CRITICAL",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -96,
+        16
+      ],
+      "id": "2ee02377-5f02-456d-9241-4c22470ebc5b",
+      "name": "Severity Confirmation"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://REPLACE_WITH_IRIS_HOST/alerts/add",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer REPLACE_WITH_DFIR_IRIS_API_TOKEN"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.iris_payload) }}",
+        "options": {
+          "allowUnauthorizedCerts": true
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        768,
+        -32
+      ],
+      "id": "dfir-iris-ingest-node-001",
+      "name": "DFIR-IRIS Alert",
+      "continueOnFail": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// ============================================================\n// LAYA - PRIMARY ALERT JUDGEMENT (INITIAL DETERMINATION)\n// ============================================================\n// Determines whether incoming alert requires external Threat Intel\n// or internal host metric analysis, establishing the primary hypothesis.\n// ============================================================\n\nconst data = $input.first().json;\nconst alert = (data.body && typeof data.body === 'object') ? data.body : (data.original_alert ?? data);\n\nfunction isPrivateOrLocalIP(ip) {\n  if (!ip || typeof ip !== 'string') return true;\n  const clean = ip.trim();\n  if (clean === 'localhost' || clean === '127.0.0.1' || clean === '::1' || clean === '0.0.0.0') return true;\n  \n  const parts = clean.split('.');\n  if (parts.length !== 4) return true;\n  const nums = parts.map(Number);\n  if (nums.some(isNaN)) return true;\n  \n  const [a, b, c, d] = nums;\n  \n  // RFC 1918 Private Ranges\n  if (a === 10) return true;\n  if (a === 172 && (b >= 16 && b <= 31)) return true;\n  if (a === 192 && b === 168) return true;\n  \n  // Loopback / Link-Local / Tailscale / Multicast / Broadcast\n  if (a === 127) return true;\n  if (a === 169 && b === 254) return true;\n  if (a === 100 && (b >= 64 && b <= 127)) return true;\n  if (a === 0 || a >= 224) return true;\n  \n  return false;\n}\n\nfunction isValidHash(val) {\n  if (!val || typeof val !== 'string') return false;\n  const clean = val.trim().toLowerCase();\n  return /^[a-f0-9]{32}$/.test(clean) || /^[a-f0-9]{40}$/.test(clean) || /^[a-f0-9]{64}$/.test(clean);\n}\n\n// 1. Candidate IPs from telemetry\nconst candidateIps = [\n  alert.data?.srcip,\n  alert.data?.src_ip,\n  alert.data?.source_ip,\n  alert.srcip,\n  alert.source_ip,\n  data.source_ip,\n  data.ioc?.value\n].filter(Boolean);\n\nlet verifiedPublicIP = null;\nfor (const ip of candidateIps) {\n  if (typeof ip === 'string' && !isPrivateOrLocalIP(ip)) {\n    verifiedPublicIP = ip.trim();\n    break;\n  }\n}\n\n// 2. Candidate Hashes\nconst candidateHashes = [\n  alert.data?.md5,\n  alert.data?.sha1,\n  alert.data?.sha256,\n  alert.data?.hash,\n  alert.data?.file_hash,\n  alert.syscheck?.md5_after,\n  alert.syscheck?.sha1_after,\n  alert.syscheck?.sha256_after,\n  alert.md5,\n  alert.sha1,\n  alert.sha256\n].filter(Boolean);\n\nlet verifiedHash = null;\nfor (const h of candidateHashes) {\n  if (isValidHash(h)) {\n    verifiedHash = h.trim().toLowerCase();\n    break;\n  }\n}\n\n// 3. Local Host Event Detection\nconst isLocalHostEvent = Boolean(\n  alert.rule?.groups?.includes('sudo') ||\n  alert.rule?.groups?.includes('pam') ||\n  alert.rule?.groups?.includes('syslog') ||\n  alert.location === 'journald' ||\n  alert.data?.srcuser !== undefined ||\n  alert.data?.command !== undefined\n);\n\nlet triggerThreatIntel = false;\nlet gatekeeperReason = \"\";\nlet verifiedIOC = null;\n\nif (verifiedPublicIP && !isLocalHostEvent) {\n  triggerThreatIntel = true;\n  verifiedIOC = { type: 'public_ip', value: verifiedPublicIP };\n  gatekeeperReason = `Verified public IP: ${verifiedPublicIP}`;\n} else if (verifiedHash) {\n  triggerThreatIntel = true;\n  verifiedIOC = { type: 'hash', value: verifiedHash };\n  gatekeeperReason = `Verified artifact file hash: ${verifiedHash}`;\n} else {\n  triggerThreatIntel = false;\n  verifiedIOC = { type: 'none', value: null };\n  gatekeeperReason = isLocalHostEvent\n    ? \"Internal host event - TI bypassed to preserve API quota\"\n    : \"Private IP or local telemetry - TI bypassed to preserve API quota\";\n}\n\nreturn [{\n  json: {\n    ...data,\n    ti_required: triggerThreatIntel,\n    laya_primary: {\n      stage: \"Primary Determination\",\n      verdict: triggerThreatIntel ? \"EXTERNAL_TI_REQUIRED\" : \"INTERNAL_METRIC_ANALYSIS\",\n      reason: gatekeeperReason,\n      public_ip: verifiedPublicIP,\n      hash: verifiedHash,\n      timestamp: new Date().toISOString()\n    },\n    gatekeeper: {\n      decision: triggerThreatIntel ? \"TRIGGER_TI\" : \"BYPASS_TI\",\n      reason: gatekeeperReason,\n      public_ip: verifiedPublicIP,\n      hash: verifiedHash\n    },\n    source_ip: verifiedPublicIP ?? candidateIps[0] ?? null,\n    ioc: verifiedIOC\n  }\n}];\n"
+      },
+      "id": "b78291f0-281b-4d0c-8069-7c10b4290111",
+      "name": "IOC Routing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -624,
+        432
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// LAYA - HUMAN INTERVENTION GATEKEEPER (v3.3)\n// ============================================================\n// Authoritative decision: delegates to the Laya engine (:9999) and routes on\n// its verdict. Fail-safe if the engine is unreachable (escalate, never drop).\n// On escalation it stamps the Laya correlation id + decision into the IRIS\n// payload so IRIS and Discord tickets reference the same decision record.\n// ============================================================\n\nconst data = $input.first().json;\nconst report = data.report ?? {};\nconst incident = data.incident ?? {};\n\nconst firstStr = (...vals) => {\n  for (const v of vals) {\n    if (v === undefined || v === null) continue;\n    const s = String(v).trim();\n    if (s !== '' && s !== 'undefined' && s !== 'null') return s;\n  }\n  return '';\n};\nconst firstNum = (...vals) => {\n  for (const v of vals) {\n    if (v === undefined || v === null || v === '') continue;\n    const n = Number(v);\n    if (Number.isFinite(n)) return n;\n  }\n  return 0;\n};\n\nconst ruleLevel = firstNum(report.rule_level, incident.rule_level, data.rule_level, data.rule?.level);\nconst ruleId = firstStr(report.rule_id, incident.rule_id, data.rule_id, 'N/A');\nconst description = firstStr(report.description, incident.description, data.description, 'Security Event');\nconst sourceIp = firstStr(report.source_ip, incident.source_ip, data.source_ip, data.candidate_ip, incident.original_alert?.data?.srcip);\nconst agentName = firstStr(report.agent_name, incident.agent_name, data.agent_name, data.host, 'unknown');\nconst severity = firstStr(report.severity, data.severity, incident.severity, 'MEDIUM').toUpperCase();\nconst riskScore = firstNum(report.risk_score, incident.risk_score, data.risk_score);\nconst srcUser = firstStr(\n  report.srcuser, report.internal_analysis?.user,\n  incident.original_alert?.data?.srcuser, incident.original_alert?.data?.user,\n  data.original_alert?.data?.srcuser, data.srcuser, ''\n);\n\nconst triagePayload = {\n  timestamp: new Date().toISOString(),\n  host: agentName,\n  vendor: incident.vendor ?? report.vendor ?? 'Wazuh',\n  rule_id: ruleId,\n  rule_level: ruleLevel,\n  description,\n  source_ip: sourceIp,\n  srcuser: srcUser,\n  severity,\n  risk_score: riskScore,\n  threat_intelligence: report.threat_intelligence ?? incident.threat_intelligence ?? {},\n  assessment: report.assessment ?? incident.assessment ?? {},\n  groups: (report.raw_alert?.rule?.groups) ?? incident?.original_alert?.rule?.groups ?? [],\n  raw_alert: report.raw_alert ?? incident?.original_alert ?? null,\n};\n\nlet layaDecision = null;\ntry {\n  if (typeof fetch === 'function') {\n    const res = await fetch('http://REPLACE_WITH_LAYA_HOST:9999/api/triage', {\n      method: 'POST', headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify(triagePayload)\n    });\n    layaDecision = await res.json();\n  } else if (this.helpers && this.helpers.httpRequest) {\n    layaDecision = await this.helpers.httpRequest({\n      method: 'POST', url: 'http://REPLACE_WITH_LAYA_HOST:9999/api/triage',\n      body: triagePayload, json: true\n    });\n  }\n} catch (e) {\n  // Fail-safe: engine unreachable => escalate anything material, never drop.\n  layaDecision = {\n    action: (ruleLevel >= 8 || severity === 'HIGH' || severity === 'CRITICAL') ? 'ESCALATED' : 'CLOSED_NO_IMPACT',\n    verdict: 'ENGINE_UNAVAILABLE', confidence: 0.50, layer: 4,\n    stage: 'L4 Fail-Safe (engine unreachable)',\n    reason: `Laya engine unreachable: ${(e && e.message) ? e.message : e}`,\n    laya_model_used: false, latency_ms: 0, correlation_id: 'lay-offline'\n  };\n}\n\nconst action = layaDecision?.action ?? layaDecision?.decision ?? 'ESCALATED';\n\nif (action !== 'ESCALATED') {\n  // Auto-closed with no impact - no IRIS / Discord / Telegram / Slack / FortiGate.\n  return [];\n}\n\n// ---- enrich the IRIS payload with the Laya decision (correlation) ----\nconst cid = layaDecision?.correlation_id ?? '';\nconst layerTag = (layaDecision?.layer === null || layaDecision?.layer === undefined) ? '' : ('L' + layaDecision.layer);\nconst verdict = layaDecision?.verdict ?? 'UNCORROBORATED_OR_TRAINING';\nconst confPct = Math.round((Number(layaDecision?.confidence) || 0) * 100);\n\nconst irisPayload = Object.assign({}, data.iris_payload || {});\nirisPayload.alert_title = String(irisPayload.alert_title || 'Security Incident')\n  + ' [Laya ' + verdict.replace(/_/g, ' ') + ']';\nirisPayload.alert_source_ref = [irisPayload.alert_source_ref || 'soar', cid].filter(Boolean).join('|');\nirisPayload.alert_tags = [irisPayload.alert_tags || '', 'laya', layerTag, verdict, cid].filter(Boolean).join(',');\nirisPayload.alert_description = (irisPayload.alert_description || '') +\n  '\\n\\n[LAYA DECISION RECORD]\\n' +\n  'Correlation ID : ' + cid + '\\n' +\n  'Decision layer : ' + (layerTag || 'n/a') + '  ' + (layaDecision?.stage || '') + '\\n' +\n  'Verdict        : ' + verdict + '\\n' +\n  'Confidence     : ' + confPct + '%\\n' +\n  'Decided by     : ' + (layaDecision?.laya_model_used ? 'Laya System 1 decision engine neural model' : 'deterministic guardrail') + '\\n' +\n  'Engine latency : ' + (layaDecision?.latency_ms ?? 0) + ' ms\\n' +\n  'Reason         : ' + (layaDecision?.reason || '');\n\nreturn [{\n  json: {\n    ...data,\n    severity,\n    iris_payload: irisPayload,\n    laya_gate: {\n      human_intervention_required: true,\n      action: 'ESCALATED',\n      correlation_id: cid,\n      layer: (layaDecision?.layer === undefined) ? null : layaDecision.layer,\n      verdict: verdict,\n      confidence: Number(layaDecision?.confidence) || 0.90,\n      reason: layaDecision?.reason || 'Escalated by Laya engine',\n      stage: layaDecision?.stage || 'Laya System 1 decision engine',\n      latency_ms: layaDecision?.latency_ms ?? 0,\n      model_latency_ms: layaDecision?.model_latency_ms ?? null,\n      laya_model_used: !!layaDecision?.laya_model_used,\n      policy_version: layaDecision?.policy_version ?? '5.0',\n      evaluated_at: new Date().toISOString()\n    }\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        0
+      ],
+      "id": "laya-human-gate-001",
+      "name": "Laya Decision Gate",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "177c8ab2-9cbb-4641-859b-f2ca9953a859",
+              "leftValue": "={{ $json.report.source_ip }}",
+              "rightValue": "^(?!(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|127\\.|169\\.254\\.|0\\.|224\\.|::1$|f[cd]|fe80)).+",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        560
+      ],
+      "id": "98c569bb-5088-46c4-b201-ab772501aec8",
+      "name": "Is Public IP?"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "IOC Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "virus total": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "OTX": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "AbuseIPDB": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "TI Aggregator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Grey Noise": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Threat Fox": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Severity": {
+      "main": [
+        [
+          {
+            "node": "Final Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Severity Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Is Public IP?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Incident Summary": {
+      "main": [
+        [
+          {
+            "node": "Severity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Report": {
+      "main": [
+        [
+          {
+            "node": "Laya Decision Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leakix": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "TI Aggregator": {
+      "main": [
+        [
+          {
+            "node": "TI Normalizer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI Normalizer": {
+      "main": [
+        [
+          {
+            "node": "External Incident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "External Incident": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IOC Extraction": {
+      "main": [
+        [
+          {
+            "node": "Dedup Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI required?": {
+      "main": [
+        [
+          {
+            "node": "Threat Fox",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Grey Noise",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AbuseIPDB",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "OTX",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "virus total",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Leakix",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Internal Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Internal Analysis": {
+      "main": [
+        [
+          {
+            "node": "Internal Incident",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Internal Incident": {
+      "main": [
+        [
+          {
+            "node": "Merge2",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge2": {
+      "main": [
+        [
+          {
+            "node": "TI Corroboration & Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dedup Check": {
+      "main": [
+        [
+          {
+            "node": "IOC Routing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DFIR-IRIS Alert": {
+      "main": [
+        [
+          {
+            "node": "Discord Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IOC Routing": {
+      "main": [
+        [
+          {
+            "node": "TI required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TI Corroboration & Scoring": {
+      "main": [
+        [
+          {
+            "node": "Incident Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Laya Decision Gate": {
+      "main": [
+        [
+          {
+            "node": "DFIR-IRIS Alert",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Severity Confirmation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Public IP?": {
+      "main": [
+        [
+          {
+            "node": "FortiGate HTTP Request node",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "tags": []
+}

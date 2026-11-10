@@ -1,0 +1,35 @@
+%% End-to-end sequence — intended path, not a runtime test result
+sequenceDiagram
+    autonumber
+    participant W as Wazuh
+    participant N as n8n workflow
+    participant TI as TI providers (6)
+    participant L as Laya engine
+    participant I as DFIR-IRIS
+    participant C as Discord/Telegram/Slack
+    participant F as FortiGate
+
+    W->>N: POST /webhook/wazuh-alerts (JSON alert)
+    N->>N: Edit Fields → IOC Extraction → Dedup Check → IOC Routing
+    alt ti_required = true
+        N->>TI: 6 parallel HTTPS lookups
+        TI-->>N: provider JSON / error items
+        N->>N: Merge1 → TI Aggregator → TI Normalizer → External Incident
+    else ti_required = false
+        N->>N: Internal Analysis → Internal Incident
+    end
+    N->>N: Merge2 → Corroboration → Incident Summary → Severity → Final Report
+    N->>L: POST /api/triage (triage payload, no HMAC)
+    alt engine reachable and not escalated
+        L-->>N: action != ESCALATED
+        N-->>W: execution ends, no notifications
+    else engine unreachable or escalated
+        L-->>N: action = ESCALATED (or fail-safe ENGINE_UNAVAILABLE)
+        N->>I: POST /alerts/add (IRIS payload + Laya decision)
+        I-->>N: alert_id
+        N->>C: Discord embed + Telegram + Slack
+        opt severity HIGH/CRITICAL and public source IP
+            N->>F: firewall/address request (GET by default)
+        end
+    end
+    Note over N,L: The HTTP call is made from a Code node, which n8n documents<br/>as unable to make HTTP requests. This path is architectural intent.

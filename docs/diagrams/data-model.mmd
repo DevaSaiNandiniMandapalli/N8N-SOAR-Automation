@@ -1,0 +1,97 @@
+%% Data model — item shapes across the pipeline
+classDiagram
+    class WazuhAlert {
+        +string id
+        +string timestamp
+        +Rule rule
+        +Agent agent
+        +Data data
+        +string full_log
+        +string location
+    }
+    class NormalizedFields {
+        +number rule_level
+        +string agent_name
+        +string description
+        +string source_ip
+        +string rule_id
+        +string agent_id
+        +string[] groups
+    }
+    class IOCSet {
+        +string type
+        +string value
+        +string[] public_ips
+        +string[] private_ips
+        +string[] domains
+        +string[] urls
+        +string[] hashes
+    }
+    class ThreatIntelligence {
+        +ProviderResult greynoise
+        +ProviderResult abuseipdb
+        +ProviderResult otx
+        +ProviderResult virustotal
+        +ProviderResult threatfox
+        +ProviderResult leakix
+    }
+    class Assessment {
+        +string confidence
+        +string verdict
+        +number risk_score
+        +number provider_coverage
+        +bool has_malicious_evidence
+        +string[] malicious_sources
+        +string[] evidence
+        +number[] provider_failures
+    }
+    class Incident {
+        +string analysis_type
+        +string severity
+        +string source_ip
+        +string rule_id
+        +number rule_level
+        +ThreatIntelligence threat_intelligence
+        +Assessment assessment
+        +InternalAnalysis internal_analysis
+        +object original_alert
+        +string raw_log
+    }
+    class Report {
+        +string[] scene_lines
+        +string summary
+        +string recommendation
+        +string description
+        +string severity
+        +number risk_score
+    }
+    class IrisPayload {
+        +string alert_title
+        +string alert_description
+        +string alert_source_ref
+        +number alert_severity_id
+        +number alert_status_id
+        +number alert_customer_id
+        +string alert_tags
+    }
+    class LayaGate {
+        +string action
+        +string verdict
+        +number confidence
+        +number layer
+        +string stage
+        +string correlation_id
+        +bool laya_model_used
+        +string policy_version
+    }
+
+    WazuhAlert --> NormalizedFields : mapped by Edit Fields
+    WazuhAlert --> IOCSet : scanned by IOC Extraction
+    NormalizedFields --> Incident : carried forward
+    IOCSet --> Incident : ioc
+    ThreatIntelligence --> Incident : threat_intelligence
+    Incident --> Assessment : assessment
+    Incident --> Report : Final Report
+    Report --> IrisPayload : Final Report
+    LayaGate --> IrisPayload : enriches
+    IrisPayload --> "1" DFIR_IRIS_Alert : POST

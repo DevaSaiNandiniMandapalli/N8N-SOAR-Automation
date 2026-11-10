@@ -1,0 +1,77 @@
+%% Full pipeline — all 31 nodes and 36 connections
+flowchart TD
+    subgraph S1["Stage 1 — Ingress"]
+        A1["Webhook<br/>POST /wazuh-alerts"]
+        A2["Edit Fields<br/>7 mapped fields"]
+        A1 --> A2
+    end
+
+    subgraph S2["Stage 2 — Pre-processing"]
+        B1["IOC Extraction<br/>runOnceForEachItem"]
+        B2["Dedup Check<br/>3 min static window"]
+        B3["IOC Routing<br/>primary judgement"]
+        B1 --> B2 --> B3
+    end
+
+    subgraph S3["Stage 3 — Routing"]
+        C1{"TI required?"}
+    end
+
+    subgraph S4A["Stage 4A — External enrichment"]
+        D1["Threat Fox"]
+        D2["Grey Noise"]
+        D3["AbuseIPDB"]
+        D4["OTX"]
+        D5["virus total"]
+        D6["Leakix"]
+        D7["Merge1<br/>6 inputs"]
+        D8["TI Aggregator"]
+        D9["TI Normalizer"]
+        D10["External Incident"]
+        D1 & D2 & D3 & D4 & D5 & D6 --> D7 --> D8 --> D9 --> D10
+    end
+
+    subgraph S4B["Stage 4B — Internal analysis"]
+        E1["Internal Analysis"]
+        E2["Internal Incident"]
+        E1 --> E2
+    end
+
+    subgraph S5["Stage 5 — Correlation and reporting"]
+        F1["Merge2"]
+        F2["TI Corroboration & Scoring"]
+        F3["Incident Summary"]
+        F4["Severity"]
+        F5["Final Report"]
+        F1 --> F2 --> F3 --> F4 --> F5
+    end
+
+    subgraph S6["Stage 6 — Decision"]
+        G1["Laya Decision Gate"]
+    end
+
+    subgraph S7["Stage 7 — Response"]
+        H1["DFIR-IRIS Alert"]
+        H2["Discord Alert"]
+        H3["Severity Confirmation"]
+        H4{"Is Public IP?"}
+        H5["FortiGate HTTP Request node"]
+        H6["Send a text message"]
+        H7["Slack"]
+        H1 --> H2
+        H3 -->|"true"| H4
+        H4 -->|"true"| H5
+    end
+
+    A2 --> B1
+    B3 --> C1
+    C1 -->|"true (output 0)"| D1 & D2 & D3 & D4 & D5 & D6
+    C1 -->|"false (output 1)"| E1
+    D10 --> F1
+    E2 --> F1
+    F5 --> G1
+    G1 -->|"ESCALATED"| H1 & H3 & H6 & H7
+    G1 -.->|"unsupported HTTP call"| LAYA["Laya engine :9999"]
+
+    classDef dead fill:#fff4f4,stroke:#c0392b,stroke-dasharray:4 3;
+    class H4,H3 dead;

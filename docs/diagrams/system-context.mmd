@@ -1,0 +1,42 @@
+%% System context — Enterprise SOC SOAR Pipeline
+%% Source: static audit of the sanitized 31-node workflow export.
+flowchart TB
+    subgraph Producers["Detection plane"]
+        WZ["Wazuh manager<br/>rules + agents"]
+    end
+
+    subgraph Control["Automation plane (private network)"]
+        N8N["n8n 2.x<br/>Enterprise SOC SOAR Pipeline<br/>31 nodes / 36 edges"]
+        LAYA["Laya decision engine<br/>POST /api/triage<br/>engine v6.2 (observed)"]
+        IRIS["DFIR-IRIS<br/>case management"]
+        FGT["FortiGate<br/>CMDB API"]
+    end
+
+    subgraph Intel["Threat-intelligence plane (public SaaS)"]
+        VT["VirusTotal"]
+        AB["AbuseIPDB"]
+        OTX["AlienVault OTX"]
+        GN["GreyNoise"]
+        TF["ThreatFox"]
+        LK["LeakIX"]
+    end
+
+    subgraph Notify["Notification plane"]
+        DC["Discord webhook"]
+        TG["Telegram Bot API"]
+        SL["Slack API"]
+    end
+
+    WZ -->|"POST /webhook/wazuh-alerts<br/>JSON alert (unauthenticated)"| N8N
+    N8N -->|"6 parallel HTTPS calls"| VT
+    N8N --> AB
+    N8N --> OTX
+    N8N --> GN
+    N8N --> TF
+    N8N --> LK
+    N8N -->|"HTTP JSON from Code node<br/>no HMAC observed"| LAYA
+    N8N -->|"POST /alerts/add"| IRIS
+    N8N -->|"POST webhook"| DC
+    N8N --> TG
+    N8N --> SL
+    N8N -->|"CMDB firewall/address"| FGT

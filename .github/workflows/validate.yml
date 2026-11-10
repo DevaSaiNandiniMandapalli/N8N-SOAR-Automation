@@ -1,0 +1,42 @@
+name: Validate sanitized workflow
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate workflow structure and Code node syntax
+        run: python scripts/validate_workflow.py --workflow workflows/enterprise-soc-soar-pipeline.sanitized.json
+
+      - name: Scan tracked files for secrets
+        run: python scripts/secret_scan.py --root .
+
+      - name: Scan Git history for secrets
+        run: python scripts/secret_scan.py --root . --history
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Verify sample files are valid JSON
+        run: python -c "import json,pathlib; [json.loads(p.read_text()) for p in pathlib.Path('workflows/samples').glob('*.json')]; print('samples ok')"
